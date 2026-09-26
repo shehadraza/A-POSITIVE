@@ -1413,272 +1413,296 @@ export default function Home() {
   ====================================================== */
 
   useEffect(() => {
-    const loadCms =
-      async () => {
-        const [
-          brandsResult,
-          heroResult,
-          announcementResult,
-        ] =
-          await Promise.all([
-            supabase
-              .from("brands")
-              .select(
-                "id,slug,name,tagline,image_url,accent_color,dark_color,active,sort_order"
-              )
-              .order(
-                "sort_order",
-                {
-                  ascending:
-                    true,
-                }
-              ),
+  let mounted = true;
 
-            supabase
-              .from(
-                "hero_slides"
-              )
-              .select(
-                "id,brand_slug,title,subtitle,image_url,mobile_image_url,button_text,button_href,active,sort_order"
-              )
-              .order(
-                "sort_order",
-                {
-                  ascending:
-                    true,
-                }
-              ),
+  const loadCms = async () => {
+    try {
+      const [
+        brandsResult,
+        heroResult,
+        announcementResult,
+      ] = await Promise.all([
+        supabase
+          .from("brands")
+          .select(
+            "id,slug,name,tagline,image_url,accent_color,dark_color,active,sort_order"
+          )
+          .order("sort_order", {
+            ascending: true,
+          }),
 
-            supabase
-              .from(
-                "announcement_bars"
-              )
-              .select(
-                "id,text,link_text,link_href,active,sort_order"
-              )
-              .order(
-                "sort_order",
-                {
-                  ascending:
-                    true,
-                }
-              ),
-          ]);
+        supabase
+          .from("hero_slides")
+          .select(
+            "id,brand_slug,title,subtitle,image_url,mobile_image_url,button_text,button_href,active,sort_order"
+          )
+          .order("sort_order", {
+            ascending: true,
+          }),
 
-        /* ==========================
-           BRANDS
-        ========================== */
+        supabase
+          .from("announcement_bars")
+          .select(
+            "id,text,link_text,link_href,active,sort_order"
+          )
+          .order("sort_order", {
+            ascending: true,
+          }),
+      ]);
 
-        if (
-          !brandsResult.error &&
+      if (!mounted) {
+        return;
+      }
+
+      /* ==========================
+         BRANDS
+      ========================== */
+
+      if (
+        !brandsResult.error &&
+        brandsResult.data
+      ) {
+        const normalized =
           brandsResult.data
-        ) {
-          const normalized =
-            brandsResult.data
-              .filter(
-                (item) =>
-                  item.active !==
-                    false &&
-                  item.slug
-              )
-              .map(
-                normalizeBrand
-              );
+            .filter(
+              (item) =>
+                item.active !== false &&
+                item.slug
+            )
+            .map(normalizeBrand);
 
-          setLiveBrands(
-            normalized
-          );
-        }
+        setLiveBrands(normalized);
+      }
 
-        /* ==========================
-           HERO
-        ========================== */
+      /* ==========================
+         HERO
+      ========================== */
 
-        if (
-          !heroResult.error &&
+      if (
+        !heroResult.error &&
+        heroResult.data
+      ) {
+        setHeroSlides(
           heroResult.data
-        ) {
-          setHeroSlides(
-            heroResult.data
-              .filter(
-                (item) =>
-                  item.active !==
-                  false
-              )
-              .map(
-                (item) => ({
-                  id: String(
-                    item.id
+            .filter(
+              (item) =>
+                item.active !== false
+            )
+            .map(
+              (item) => ({
+                id: String(
+                  item.id
+                ),
+
+                brand_slug:
+                  item.brand_slug ??
+                  null,
+
+                title:
+                  item.title ??
+                  null,
+
+                subtitle:
+                  item.subtitle ??
+                  null,
+
+                image_url:
+                  item.image_url ??
+                  null,
+
+                mobile_image_url:
+                  item.mobile_image_url ??
+                  null,
+
+                button_text:
+                  item.button_text ??
+                  null,
+
+                button_href:
+                  item.button_href ??
+                  null,
+
+                sort_order:
+                  Number(
+                    item.sort_order ??
+                      0
                   ),
+              })
+            )
+            .sort(
+              (a, b) =>
+                (a.sort_order ??
+                  0) -
+                (b.sort_order ??
+                  0)
+            )
+        );
+      }
 
-                  brand_slug:
-                    item.brand_slug ??
-                    null,
+      /* ==========================
+         ANNOUNCEMENTS
+      ========================== */
 
-                  title:
-                    item.title ??
-                    null,
-
-                  subtitle:
-                    item.subtitle ??
-                    null,
-
-                  image_url:
-                    item.image_url ??
-                    null,
-
-                  mobile_image_url:
-                    item.mobile_image_url ??
-                    null,
-
-                  button_text:
-                    item.button_text ??
-                    null,
-
-                  button_href:
-                    item.button_href ??
-                    null,
-
-                  sort_order:
-                    Number(
-                      item.sort_order ??
-                        0
-                    ),
-                })
-              )
-              .sort(
-                (a, b) =>
-                  (a.sort_order ??
-                    0) -
-                  (b.sort_order ??
-                    0)
-              )
-          );
-        }
-
-        /* ==========================
-           ANNOUNCEMENTS
-        ========================== */
-
-        if (
-          !announcementResult.error &&
+      if (
+        !announcementResult.error &&
+        announcementResult.data
+      ) {
+        const announcements =
           announcementResult.data
-        ) {
-          setAnnouncements(
-            announcementResult.data
-              .filter(
-                (item) =>
-                  item.active !==
-                  false
-              )
-              .map(
-                (item) => ({
-                  id: String(
-                    item.id
+            .filter(
+              (item) =>
+                item.active !== false
+            )
+            .map(
+              (item) => ({
+                id: String(
+                  item.id
+                ),
+
+                text:
+                  item.text ?? "",
+
+                link_text:
+                  item.link_text ??
+                  null,
+
+                link_href:
+                  item.link_href ??
+                  null,
+
+                sort_order:
+                  Number(
+                    item.sort_order ??
+                      0
                   ),
+              })
+            )
+            .sort(
+              (a, b) =>
+                (a.sort_order ??
+                  0) -
+                (b.sort_order ??
+                  0)
+            );
 
-                  text:
-                    item.text ??
-                    "",
+        setAnnouncements(
+          announcements
+        );
+      }
+    } catch (error) {
+      console.error(
+        "CMS LOAD ERROR:",
+        error
+      );
+    }
+  };
 
-                  link_text:
-                    item.link_text ??
-                    null,
+  /* INITIAL LOAD */
+  loadCms();
 
-                  link_href:
-                    item.link_href ??
-                    null,
+  /* ==========================
+     BRANDS REALTIME
+  ========================== */
 
-                  sort_order:
-                    Number(
-                      item.sort_order ??
-                        0
-                    ),
-                })
-              )
-              .sort(
-                (a, b) =>
-                  (a.sort_order ??
-                    0) -
-                  (b.sort_order ??
-                    0)
-              )
-          );
+  const brandsChannel =
+    supabase
+      .channel(
+        "homepage-brands-live"
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "brands",
+        },
+        () => {
+          loadCms();
         }
-      };
+      )
+      .subscribe();
 
-    loadCms();
+  /* ==========================
+     HERO REALTIME
+  ========================== */
 
-    const brandsChannel =
-      supabase
-        .channel(
-          "homepage-brand-original"
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "brands",
-          },
-          () => {
-            loadCms();
-          }
-        )
-        .subscribe();
+  const heroChannel =
+    supabase
+      .channel(
+        "homepage-hero-live"
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "hero_slides",
+        },
+        () => {
+          loadCms();
+        }
+      )
+      .subscribe();
 
-    const heroChannel =
-      supabase
-        .channel(
-          "homepage-hero-original"
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table:
-              "hero_slides",
-          },
-          () => {
-            loadCms();
-          }
-        )
-        .subscribe();
+  /* ==========================
+     ANNOUNCEMENT REALTIME
+  ========================== */
 
-    const announcementChannel =
-      supabase
-        .channel(
-          "homepage-announcement-original"
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table:
-              "announcement_bars",
-          },
-          () => {
-            loadCms();
-          }
-        )
-        .subscribe();
+  const announcementChannel =
+    supabase
+      .channel(
+        "homepage-announcements-live"
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "announcement_bars",
+        },
+        () => {
+          console.log(
+            "ANNOUNCEMENT UPDATED"
+          );
 
-    return () => {
-      supabase.removeChannel(
-        brandsChannel
-      );
+          loadCms();
+        }
+      )
+      .subscribe();
 
-      supabase.removeChannel(
-        heroChannel
-      );
+  /* ==========================
+     BACKUP REFRESH
+  ========================== */
 
-      supabase.removeChannel(
-        announcementChannel
-      );
-    };
-  }, []);
+  const refreshTimer =
+    window.setInterval(() => {
+      loadCms();
+    }, 5000);
+
+  /* ==========================
+     CLEANUP
+  ========================== */
+
+  return () => {
+    mounted = false;
+
+    window.clearInterval(
+      refreshTimer
+    );
+
+    supabase.removeChannel(
+      brandsChannel
+    );
+
+    supabase.removeChannel(
+      heroChannel
+    );
+
+    supabase.removeChannel(
+      announcementChannel
+    );
+  };
+}, []);
 
   /* =====================================================
      BRAND AUTO ROTATION
