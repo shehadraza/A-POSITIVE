@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Heart,
+  LogIn,
   LogOut,
   ShoppingBag,
   UserRound,
@@ -50,22 +51,45 @@ export default function AccountPage() {
 
     async function loadAccount() {
       try {
-        const {
-          data,
-          error: userError,
-        } =
-          await supabase.auth.getUser();
+        setError("");
 
-        if (userError) {
-          throw new Error(
-            userError.message
+        /* =================================================
+           GET CURRENT SESSION
+        ================================================= */
+
+        const {
+          data: sessionData,
+          error: sessionError,
+        } =
+          await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error(
+            "ACCOUNT SESSION ERROR:",
+            sessionError
           );
+
+          if (mounted) {
+            setError(
+              "Unable to check your login session."
+            );
+          }
+
+          return;
         }
 
-        const currentUser = data.user;
+        const currentUser =
+          sessionData.session?.user;
+
+        /* =================================================
+           LOGIN REQUIRED
+        ================================================= */
 
         if (!currentUser) {
-          router.replace("/login");
+          router.replace(
+            "/login?next=/account"
+          );
+
           return;
         }
 
@@ -73,18 +97,24 @@ export default function AccountPage() {
           return;
         }
 
+        /* =================================================
+           USER DATA
+        ================================================= */
+
         const metadata =
           currentUser.user_metadata ?? {};
 
         setUser({
           email:
             currentUser.email ?? "",
+
           name:
             String(
               metadata.full_name ??
                 metadata.name ??
                 ""
             ),
+
           phone:
             String(
               metadata.phone ??
@@ -115,6 +145,10 @@ export default function AccountPage() {
 
     function loadLocalCounts() {
       try {
+        /* ===============================================
+           CART COUNT
+        =============================================== */
+
         const savedCart =
           localStorage.getItem(
             CART_KEY
@@ -122,7 +156,9 @@ export default function AccountPage() {
 
         if (savedCart) {
           const parsed =
-            JSON.parse(savedCart);
+            JSON.parse(
+              savedCart
+            );
 
           if (Array.isArray(parsed)) {
             const count =
@@ -142,8 +178,16 @@ export default function AccountPage() {
               );
 
             setCartCount(count);
+          } else {
+            setCartCount(0);
           }
+        } else {
+          setCartCount(0);
         }
+
+        /* ===============================================
+           WISHLIST COUNT
+        =============================================== */
 
         const savedWishlist =
           localStorage.getItem(
@@ -160,13 +204,20 @@ export default function AccountPage() {
             setWishlistCount(
               parsed.length
             );
+          } else {
+            setWishlistCount(0);
           }
+        } else {
+          setWishlistCount(0);
         }
       } catch (err) {
         console.error(
           "ACCOUNT LOCAL DATA ERROR:",
           err
         );
+
+        setCartCount(0);
+        setWishlistCount(0);
       }
     }
 
@@ -211,6 +262,10 @@ export default function AccountPage() {
     };
   }, [router]);
 
+  /* =====================================================
+     LOGOUT
+  ====================================================== */
+
   async function handleLogout() {
     if (loggingOut) {
       return;
@@ -249,6 +304,10 @@ export default function AccountPage() {
     }
   }
 
+  /* =====================================================
+     LOADING
+  ====================================================== */
+
   if (loading) {
     return (
       <main className="account-page">
@@ -276,10 +335,15 @@ export default function AccountPage() {
     );
   }
 
+  /* =====================================================
+     PAGE
+  ====================================================== */
+
   return (
     <main className="account-page">
-
       <div className="account-container">
+
+        {/* BACK */}
 
         <Link
           href="/"
@@ -292,7 +356,6 @@ export default function AccountPage() {
         {/* HEADER */}
 
         <header className="account-header">
-
           <span>
             A-POSITIVE / MY ACCOUNT
           </span>
@@ -307,7 +370,6 @@ export default function AccountPage() {
             Manage your A-POSITIVE shopping
             activity from one place.
           </p>
-
         </header>
 
         {/* ERROR */}
@@ -324,13 +386,11 @@ export default function AccountPage() {
         {/* PROFILE */}
 
         <section className="account-profile">
-
           <div className="account-avatar">
             <UserRound size={25} />
           </div>
 
           <div className="account-profile-info">
-
             <span>
               SIGNED IN AS
             </span>
@@ -343,17 +403,48 @@ export default function AccountPage() {
             <p>
               {user?.email}
             </p>
+          </div>
+        </section>
 
+        {/* =================================================
+            SHOPPING LOGIN NOTICE
+        ================================================= */}
+
+        <section className="account-shopping-notice">
+          <div className="shopping-notice-icon">
+            <LogIn size={18} />
           </div>
 
+          <div className="shopping-notice-content">
+            <span>
+              SHOPPING ACCESS
+            </span>
+
+            <h2>
+              LOGIN REQUIRED FOR SHOPPING.
+            </h2>
+
+            <p>
+              You must be signed in to your
+              A-POSITIVE account to add products
+              to your bag, continue to checkout,
+              and place an order.
+            </p>
+          </div>
+
+          <div className="shopping-notice-status">
+            <span>ACCOUNT STATUS</span>
+
+            <strong>
+              SIGNED IN
+            </strong>
+          </div>
         </section>
 
         {/* DETAILS */}
 
         <section className="account-card">
-
           <div className="account-card-heading">
-
             <div>
               <span>
                 PROFILE
@@ -367,11 +458,9 @@ export default function AccountPage() {
             </div>
 
             <UserRound size={19} />
-
           </div>
 
           <div className="account-detail-grid">
-
             <div>
               <span>
                 EMAIL
@@ -388,7 +477,8 @@ export default function AccountPage() {
               </span>
 
               <strong>
-                {user?.name || "Not added"}
+                {user?.name ||
+                  "Not added"}
               </strong>
             </div>
 
@@ -398,12 +488,11 @@ export default function AccountPage() {
               </span>
 
               <strong>
-                {user?.phone || "Not added"}
+                {user?.phone ||
+                  "Not added"}
               </strong>
             </div>
-
           </div>
-
         </section>
 
         {/* QUICK LINKS */}
@@ -499,6 +588,30 @@ export default function AccountPage() {
 
         </section>
 
+        {/* SHOPPING CTA */}
+
+        <section className="account-shopping-cta">
+          <div>
+            <span>
+              READY TO SHOP?
+            </span>
+
+            <h2>
+              EXPLORE THE
+              <br />
+              <em>COLLECTION.</em>
+            </h2>
+          </div>
+
+          <Link
+            href="/#product-explorer"
+            className="account-shopping-button"
+          >
+            START SHOPPING
+            <ArrowRight size={15} />
+          </Link>
+        </section>
+
         {/* LOGOUT */}
 
         <button
@@ -561,7 +674,11 @@ export default function AccountPage() {
         .account-header h1 {
           margin: 0;
           font-family: Georgia, serif;
-          font-size: clamp(52px, 8vw, 90px);
+          font-size: clamp(
+            52px,
+            8vw,
+            90px
+          );
           line-height: 0.87;
           font-weight: 400;
           letter-spacing: -4px;
@@ -632,6 +749,82 @@ export default function AccountPage() {
           font-size: 9px;
         }
 
+        /* ================================================
+           SHOPPING NOTICE
+        ================================================ */
+
+        .account-shopping-notice {
+          margin-top: 18px;
+          padding: 22px 24px;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 18px;
+          border: 1px solid #d9d0bc;
+          background:
+            linear-gradient(
+              135deg,
+              #fffdf8 0%,
+              #f8f3e7 100%
+            );
+        }
+
+        .shopping-notice-icon {
+          width: 46px;
+          height: 46px;
+          display: grid;
+          place-items: center;
+          border: 1px solid #d8c6a1;
+          background: #fff;
+          color: #9a7b3d;
+        }
+
+        .shopping-notice-content > span {
+          display: block;
+          margin-bottom: 6px;
+          color: #a0844d;
+          font-size: 6px;
+          font-weight: 900;
+          letter-spacing: 1.6px;
+        }
+
+        .shopping-notice-content h2 {
+          margin: 0;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 1px;
+        }
+
+        .shopping-notice-content p {
+          max-width: 650px;
+          margin: 7px 0 0;
+          color: #777;
+          font-size: 8px;
+          line-height: 1.7;
+        }
+
+        .shopping-notice-status {
+          min-width: 110px;
+          padding-left: 18px;
+          border-left: 1px solid #e0d6c3;
+        }
+
+        .shopping-notice-status span {
+          display: block;
+          margin-bottom: 6px;
+          color: #999;
+          font-size: 5.5px;
+          font-weight: 900;
+          letter-spacing: 1.2px;
+        }
+
+        .shopping-notice-status strong {
+          color: #286344;
+          font-size: 7px;
+          font-weight: 900;
+          letter-spacing: 1.2px;
+        }
+
         .account-card {
           margin-top: 18px;
           padding: 25px;
@@ -671,7 +864,10 @@ export default function AccountPage() {
 
         .account-detail-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(
+            3,
+            1fr
+          );
           gap: 10px;
         }
 
@@ -702,7 +898,10 @@ export default function AccountPage() {
         .account-actions {
           margin-top: 18px;
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(
+            3,
+            1fr
+          );
           gap: 12px;
         }
 
@@ -723,7 +922,9 @@ export default function AccountPage() {
 
         .account-action:hover {
           transform: translateY(-3px);
-          box-shadow: 0 16px 35px rgba(17, 17, 17, 0.07);
+          box-shadow:
+            0 16px 35px
+            rgba(17, 17, 17, 0.07);
         }
 
         .account-action-icon {
@@ -763,6 +964,68 @@ export default function AccountPage() {
           color: #777;
         }
 
+        /* ================================================
+           SHOPPING CTA
+        ================================================ */
+
+        .account-shopping-cta {
+          margin-top: 18px;
+          padding: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 25px;
+          border: 1px solid #111;
+          background: #111;
+          color: #fff;
+        }
+
+        .account-shopping-cta span {
+          display: block;
+          margin-bottom: 8px;
+          color: #c8a45d;
+          font-size: 6px;
+          font-weight: 900;
+          letter-spacing: 1.7px;
+        }
+
+        .account-shopping-cta h2 {
+          margin: 0;
+          font-family: Georgia, serif;
+          font-size: 27px;
+          line-height: 0.92;
+          font-weight: 400;
+        }
+
+        .account-shopping-cta h2 em {
+          font-style: italic;
+        }
+
+        .account-shopping-button {
+          min-height: 44px;
+          padding: 0 16px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          border: 1px solid #c8a45d;
+          background: #c8a45d;
+          color: #111;
+          text-decoration: none;
+          font-size: 7px;
+          font-weight: 900;
+          letter-spacing: 1.2px;
+          white-space: nowrap;
+          transition:
+            background 0.2s ease,
+            color 0.2s ease;
+        }
+
+        .account-shopping-button:hover {
+          background: transparent;
+          color: #fff;
+        }
+
         .account-logout {
           width: 100%;
           min-height: 46px;
@@ -780,6 +1043,7 @@ export default function AccountPage() {
           transition:
             background 0.25s ease,
             color 0.25s ease;
+          cursor: pointer;
         }
 
         .account-logout:hover:not(:disabled) {
@@ -792,6 +1056,21 @@ export default function AccountPage() {
           cursor: not-allowed;
         }
 
+        @media (max-width: 850px) {
+          .account-shopping-notice {
+            grid-template-columns:
+              auto minmax(0, 1fr);
+          }
+
+          .shopping-notice-status {
+            grid-column: 2;
+            padding-left: 0;
+            padding-top: 12px;
+            border-left: 0;
+            border-top: 1px solid #e0d6c3;
+          }
+        }
+
         @media (max-width: 750px) {
           .account-actions {
             grid-template-columns: 1fr;
@@ -799,6 +1078,15 @@ export default function AccountPage() {
 
           .account-action {
             min-height: 125px;
+          }
+
+          .account-shopping-cta {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .account-shopping-button {
+            width: 100%;
           }
         }
 
@@ -825,6 +1113,23 @@ export default function AccountPage() {
 
           .account-card {
             padding: 20px;
+          }
+
+          .account-shopping-notice {
+            padding: 18px;
+            grid-template-columns: 1fr;
+          }
+
+          .shopping-notice-status {
+            grid-column: auto;
+          }
+
+          .account-shopping-cta {
+            padding: 22px;
+          }
+
+          .account-shopping-cta h2 {
+            font-size: 24px;
           }
         }
       `}</style>
