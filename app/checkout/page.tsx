@@ -26,6 +26,7 @@ import { createClient } from "@/lib/supabase/client";
 
 type CartItem = {
   id: string;
+  productId?: string;
   name: string;
   brand: string;
   price: string;
@@ -33,6 +34,7 @@ type CartItem = {
   category: string;
   stock: number;
   quantity: number;
+  product?: unknown;
 };
 
 /* =========================================================
@@ -71,14 +73,105 @@ function getNumericPrice(
     return price;
   }
 
-  const cleaned = String(
-    price
-  ).replace(
+  const cleaned = String(price).replace(
     /[^\d.]/g,
     ""
   );
 
   return Number(cleaned) || 0;
+}
+
+/* =========================================================
+   NORMALIZE CART
+========================================================= */
+
+function normalizeCartItem(
+  item: any
+): CartItem | null {
+  if (!item) {
+    return null;
+  }
+
+  const product =
+    item.product &&
+    typeof item.product === "object"
+      ? item.product
+      : null;
+
+  const id =
+    item.id ??
+    item.productId ??
+    product?.id;
+
+  if (!id) {
+    return null;
+  }
+
+  const name =
+    item.name ??
+    product?.name ??
+    "Product";
+
+  const brand =
+    item.brand ??
+    product?.brand ??
+    "A-POSITIVE";
+
+  const price =
+    item.price ??
+    product?.price ??
+    "৳0";
+
+  const image =
+    item.image ??
+    item.image_url ??
+    product?.image_url ??
+    product?.image ??
+    "";
+
+  const category =
+    item.category ??
+    product?.category ??
+    "FASHION";
+
+  const stock =
+    Number(
+      item.stock ??
+        product?.stock
+    ) || 0;
+
+  const quantity = Math.max(
+    1,
+    Number(item.quantity) || 1
+  );
+
+  return {
+    id: String(id),
+
+    productId: String(
+      item.productId ??
+        product?.id ??
+        id
+    ),
+
+    name: String(name),
+
+    brand: String(brand),
+
+    price: String(price),
+
+    image: String(image),
+
+    category: String(category),
+
+    stock,
+
+    quantity,
+
+    product:
+      item.product ??
+      undefined,
+  };
 }
 
 /* =========================================================
@@ -136,33 +229,65 @@ export default function CheckoutPage() {
 
     async function loadCheckout() {
       try {
-        const {
-          data: userData,
-          error: userError,
-        } =
-          await supabase.auth.getUser();
+        setLoading(true);
+        setError("");
 
-        if (userError) {
-          throw new Error(
-            userError.message
+        /* -----------------------------------------------
+           GET CURRENT SESSION
+        ------------------------------------------------ */
+
+        const {
+          data: sessionData,
+          error: sessionError,
+        } =
+          await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error(
+            "CHECKOUT SESSION ERROR:",
+            sessionError
           );
+
+          if (mounted) {
+            setError(
+              "Unable to check your login session."
+            );
+            setLoading(false);
+          }
+
+          return;
         }
 
         const user =
-          userData?.user;
+          sessionData.session?.user;
+
+        /* -----------------------------------------------
+           NOT LOGGED IN
+        ------------------------------------------------ */
 
         if (!user) {
-  router.replace("/login?next=/checkout");
-  return;
-}
+          router.replace(
+            "/login?next=/checkout"
+          );
+
+          return;
+        }
 
         if (!mounted) {
           return;
         }
 
+        /* -----------------------------------------------
+           USER EMAIL
+        ------------------------------------------------ */
+
         setEmail(
           user.email ?? ""
         );
+
+        /* -----------------------------------------------
+           LOAD CART
+        ------------------------------------------------ */
 
         const savedCart =
           localStorage.getItem(
@@ -171,7 +296,6 @@ export default function CheckoutPage() {
 
         if (!savedCart) {
           setCart([]);
-
           return;
         }
 
@@ -181,72 +305,27 @@ export default function CheckoutPage() {
               savedCart
             );
 
-          if (
-            Array.isArray(
-              parsed
-            )
-          ) {
-            const normalizedCart =
-              parsed
-                .filter(
-                  (item) =>
-                    item &&
-                    item.id
-                )
-                .map(
-                  (item) => ({
-                    id: String(
-                      item.id
-                    ),
-
-                    name: String(
-                      item.name ??
-                        "Product"
-                    ),
-
-                    brand: String(
-                      item.brand ??
-                        "A-POSITIVE"
-                    ),
-
-                    price: String(
-                      item.price ??
-                        "৳0"
-                    ),
-
-                    image: String(
-                      item.image ??
-                        item.image_url ??
-                        ""
-                    ),
-
-                    category:
-                      String(
-                        item.category ??
-                          "FASHION"
-                      ),
-
-                    stock:
-                      Number(
-                        item.stock
-                      ) || 0,
-
-                    quantity:
-                      Math.max(
-                        1,
-                        Number(
-                          item.quantity
-                        ) || 1
-                      ),
-                  })
-                );
-
-            setCart(
-              normalizedCart
-            );
-          } else {
+          if (!Array.isArray(parsed)) {
             setCart([]);
+            return;
           }
+
+          const normalizedCart =
+            parsed
+              .map(
+                (item) =>
+                  normalizeCartItem(item)
+              )
+              .filter(
+                (
+                  item
+                ): item is CartItem =>
+                  Boolean(item)
+              );
+
+          setCart(
+            normalizedCart
+          );
         } catch (cartError) {
           console.error(
             "CART PARSING ERROR:",
@@ -293,10 +372,7 @@ export default function CheckoutPage() {
   const subtotal =
     useMemo(() => {
       return cart.reduce(
-        (
-          total,
-          item
-        ) => {
+        (total, item) => {
           return (
             total +
             getNumericPrice(
@@ -318,11 +394,6 @@ export default function CheckoutPage() {
 
   const advancePayment =
     ADVANCE_PAYMENT;
-
-  /*
-    Customer pays delivery charge now.
-    Product subtotal is collected through COD.
-  */
 
   const codAmount =
     Math.max(
@@ -453,8 +524,7 @@ export default function CheckoutPage() {
     }
 
     if (
-      trimmedTransactionId.length <
-      5
+      trimmedTransactionId.length < 5
     ) {
       setError(
         "Please enter a valid bKash transaction ID."
@@ -467,27 +537,32 @@ export default function CheckoutPage() {
 
     try {
       /* ---------------------------------------------------
-         GET CURRENT USER
+         GET CURRENT SESSION
       --------------------------------------------------- */
 
       const {
-        data: userData,
-        error: userError,
+        data: sessionData,
+        error: sessionError,
       } =
-        await supabase.auth.getUser();
+        await supabase.auth.getSession();
 
-      if (userError) {
+      if (sessionError) {
+        console.error(
+          "CHECKOUT SESSION ERROR:",
+          sessionError
+        );
+
         throw new Error(
-          userError.message
+          "Unable to verify your login session."
         );
       }
 
       const user =
-        userData?.user;
+        sessionData.session?.user;
 
       if (!user) {
         router.replace(
-          "/login"
+          "/login?next=/checkout"
         );
 
         return;
@@ -520,6 +595,10 @@ export default function CheckoutPage() {
               item.id
             ),
 
+            productId:
+              item.productId ??
+              item.id,
+
             name: item.name,
 
             brand: item.brand,
@@ -548,15 +627,9 @@ export default function CheckoutPage() {
       --------------------------------------------------- */
 
       const orderPayload = {
-        /*
-         * REQUIRED ORDER NUMBER
-         */
         order_number:
           orderNumber,
 
-        /*
-         * CUSTOMER
-         */
         user_id:
           user.id,
 
@@ -564,15 +637,9 @@ export default function CheckoutPage() {
           user.email ??
           email,
 
-        /*
-         * ORDER ITEMS
-         */
         items:
           orderItems,
 
-        /*
-         * MONEY
-         */
         subtotal:
           subtotal,
 
@@ -582,18 +649,12 @@ export default function CheckoutPage() {
         total:
           grandTotal,
 
-        /*
-         * ORDER STATUS
-         */
         status:
           "pending",
 
         order_status:
           "processing",
 
-        /*
-         * PAYMENT STATUS
-         */
         payment_status:
           "pending",
 
@@ -609,9 +670,6 @@ export default function CheckoutPage() {
         cod_amount:
           codAmount,
 
-        /*
-         * SHIPPING
-         */
         shipping_name:
           trimmedName,
 
@@ -622,135 +680,46 @@ export default function CheckoutPage() {
           shippingAddress,
       };
 
-      /* ---------------------------------------------------
-         DEBUG PAYLOAD
-      --------------------------------------------------- */
-
       console.log(
-        "================================"
-      );
-
-      console.log(
-        "A-POSITIVE ORDER PAYLOAD:"
-      );
-
-      console.log(
+        "A-POSITIVE ORDER PAYLOAD:",
         orderPayload
       );
 
-      console.log(
-        "================================"
-      );
-
       /* ---------------------------------------------------
-         INSERT ORDER
-
-         IMPORTANT:
-         No .select()
-         No .single()
-
-         Because INSERT can succeed while
-         SELECT is blocked by RLS.
+         CREATE ORDER
       --------------------------------------------------- */
 
       const {
-  data: orderResult,
-  error: orderError,
-} =
-  await supabase.rpc(
-    "create_customer_order",
-    {
-      p_order:
-        orderPayload,
-    }
-  );
+        data: orderResult,
+        error: orderError,
+      } =
+        await supabase.rpc(
+          "create_customer_order",
+          {
+            p_order:
+              orderPayload,
+          }
+        );
 
       /* ---------------------------------------------------
          DATABASE ERROR
       --------------------------------------------------- */
+
       if (orderError) {
-  console.error(
-    "================================"
-  );
+        console.error(
+          "ORDER CREATION ERROR:",
+          orderError
+        );
 
-  console.error(
-    "ORDER CREATION ERROR MESSAGE:",
-    orderError.message
-  );
-
-  console.error(
-    "ORDER CREATION ERROR DETAILS:",
-    orderError.details
-  );
-
-  console.error(
-    "ORDER CREATION ERROR HINT:",
-    orderError.hint
-  );
-
-  console.error(
-    "ORDER CREATION ERROR CODE:",
-    orderError.code
-  );
-
-  console.error(
-    "ORDER CREATION ERROR:",
-    orderError
-  );
-
-  console.error(
-    "================================"
-  );
-
-  throw new Error(
-    orderError.message ||
-      "Unable to create your order."
-  );
-}
-
-console.log(
-  "================================"
-);
-
-console.log(
-  "A-POSITIVE ORDER CREATED SUCCESSFULLY"
-);
-
-console.log(
-  "ORDER RESULT:",
-  orderResult
-);
-
-console.log(
-  "ORDER NUMBER:",
-  orderNumber
-);
-
-console.log(
-  "================================"
-);
-
-      
-
-      /* ---------------------------------------------------
-         ORDER SUCCESS
-      --------------------------------------------------- */
+        throw new Error(
+          orderError.message ||
+            "Unable to create your order."
+        );
+      }
 
       console.log(
-        "================================"
-      );
-
-      console.log(
-        "A-POSITIVE ORDER CREATED SUCCESSFULLY"
-      );
-
-      console.log(
-        "ORDER NUMBER:",
-        orderNumber
-      );
-
-      console.log(
-        "================================"
+        "ORDER CREATED SUCCESSFULLY:",
+        orderResult
       );
 
       /* ---------------------------------------------------
@@ -781,28 +750,23 @@ console.log(
          REDIRECT
       --------------------------------------------------- */
 
-      window.setTimeout(
-        () => {
-          router.push(
-            "/orders"
-          );
+      window.setTimeout(() => {
+        router.push(
+          `/orders/${encodeURIComponent(
+            String(
+              orderResult?.id ??
+                orderResult?.order_id ??
+                orderNumber
+            )
+          )}`
+        );
 
-          router.refresh();
-        },
-        1400
-      );
+        router.refresh();
+      }, 1400);
     } catch (err) {
-      console.error(
-        "================================"
-      );
-
       console.error(
         "PLACE ORDER ERROR:",
         err
-      );
-
-      console.error(
-        "================================"
       );
 
       setError(
@@ -872,13 +836,9 @@ console.log(
 
         {/* EMPTY CART */}
 
-        {cart.length ===
-        0 ? (
+        {cart.length === 0 ? (
           <div className="checkout-empty">
-
-            <ShoppingBag
-              size={38}
-            />
+            <ShoppingBag size={38} />
 
             <span>
               YOUR BAG IS EMPTY
@@ -893,7 +853,6 @@ console.log(
             <Link href="/">
               CONTINUE SHOPPING
             </Link>
-
           </div>
         ) : (
           <form
@@ -933,8 +892,6 @@ console.log(
 
                 <div className="checkout-grid">
 
-                  {/* NAME */}
-
                   <label>
                     <span>
                       FULL NAME
@@ -945,12 +902,9 @@ console.log(
                       value={
                         fullName
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setFullName(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder="Your full name"
@@ -960,8 +914,6 @@ console.log(
                       }
                     />
                   </label>
-
-                  {/* EMAIL */}
 
                   <label>
                     <span>
@@ -975,8 +927,6 @@ console.log(
                     />
                   </label>
 
-                  {/* PHONE */}
-
                   <label>
                     <span>
                       PHONE NUMBER
@@ -985,12 +935,9 @@ console.log(
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setPhone(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder="01XXXXXXXXX"
@@ -1023,18 +970,13 @@ console.log(
                     </h2>
                   </div>
 
-                  <MapPin
-                    size={19}
-                  />
+                  <MapPin size={19} />
 
                 </div>
 
                 <div className="checkout-grid">
 
-                  {/* ADDRESS */}
-
                   <label className="full-field">
-
                     <span>
                       FULL DELIVERY ADDRESS
                     </span>
@@ -1043,12 +985,9 @@ console.log(
                       value={
                         address
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setAddress(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder="House / Road / Area / Delivery address"
@@ -1057,13 +996,9 @@ console.log(
                         placingOrder
                       }
                     />
-
                   </label>
 
-                  {/* CITY */}
-
                   <label>
-
                     <span>
                       CITY / AREA
                     </span>
@@ -1073,12 +1008,9 @@ console.log(
                       value={
                         city
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setCity(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder="Chandpur / Dhaka / etc."
@@ -1086,7 +1018,6 @@ console.log(
                         placingOrder
                       }
                     />
-
                   </label>
 
                 </div>
@@ -1115,8 +1046,6 @@ console.log(
 
                 </div>
 
-                {/* PAYMENT METHOD */}
-
                 <div className="payment-option selected">
 
                   <div className="payment-radio">
@@ -1138,8 +1067,6 @@ console.log(
                   </b>
 
                 </div>
-
-                {/* BKASH BOX */}
 
                 <div className="bkash-box">
 
@@ -1163,8 +1090,6 @@ console.log(
 
                   </div>
 
-                  {/* NUMBER */}
-
                   <div className="bkash-number-box">
 
                     <span>
@@ -1176,8 +1101,6 @@ console.log(
                     </strong>
 
                   </div>
-
-                  {/* INSTRUCTIONS */}
 
                   <div className="bkash-instructions">
 
@@ -1220,8 +1143,6 @@ console.log(
 
                   </div>
 
-                  {/* TRANSACTION ID */}
-
                   <label className="transaction-field">
 
                     <span>
@@ -1233,12 +1154,9 @@ console.log(
                       value={
                         transactionId
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setTransactionId(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder="Enter bKash transaction ID"
@@ -1251,8 +1169,6 @@ console.log(
                   </label>
 
                 </div>
-
-                {/* PAYMENT BREAKDOWN */}
 
                 <div className="payment-breakdown">
 
@@ -1340,16 +1256,12 @@ console.log(
                 className="place-order-button"
                 disabled={
                   placingOrder ||
-                  Boolean(
-                    success
-                  )
+                  Boolean(success)
                 }
               >
-
                 {placingOrder ? (
                   <>
                     <span className="checkout-spinner" />
-
                     PLACING ORDER...
                   </>
                 ) : (
@@ -1365,7 +1277,6 @@ console.log(
                     />
                   </>
                 )}
-
               </button>
 
             </div>
@@ -1375,8 +1286,6 @@ console.log(
             ====================================================== */}
 
             <aside className="checkout-summary">
-
-              {/* HEADER */}
 
               <div className="summary-header">
 
@@ -1388,93 +1297,69 @@ console.log(
 
               </div>
 
-              {/* ITEMS */}
-
               <div className="summary-items">
 
-                {cart.map(
-                  (item) => (
-                    <div
-                      className="summary-item"
-                      key={
-                        item.id
-                      }
-                    >
+                {cart.map((item) => (
+                  <div
+                    className="summary-item"
+                    key={item.id}
+                  >
 
-                      {item.image ? (
-                        <img
-                          src={
-                            item.image
-                          }
-                          alt={
-                            item.name
-                          }
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 58,
-                            height: 70,
-                            display:
-                              "grid",
-                            placeItems:
-                              "center",
-                            background:
-                              "#e7e4dd",
-                            color:
-                              "#777",
-                            fontSize:
-                              8,
-                            fontWeight:
-                              800,
-                          }}
-                        >
-                          A+
-                        </div>
-                      )}
-
-                      <div>
-
-                        <span>
-                          {
-                            item.brand
-                          }
-                        </span>
-
-                        <strong>
-                          {
-                            item.name
-                          }
-                        </strong>
-
-                        <small>
-                          QTY{" "}
-                          {
-                            item.quantity
-                          }
-                        </small>
-
+                    {item.image ? (
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 58,
+                          height: 70,
+                          display: "grid",
+                          placeItems: "center",
+                          background: "#e7e4dd",
+                          color: "#777",
+                          fontSize: 8,
+                          fontWeight: 800,
+                        }}
+                      >
+                        A+
                       </div>
+                    )}
 
-                      <b>
-                        ৳
-                        {(
-                          getNumericPrice(
-                            item.price
-                          ) *
-                          item.quantity
-                        ).toLocaleString(
-                          "en-BD"
-                        )}
-                      </b>
+                    <div>
+
+                      <span>
+                        {item.brand}
+                      </span>
+
+                      <strong>
+                        {item.name}
+                      </strong>
+
+                      <small>
+                        QTY{" "}
+                        {item.quantity}
+                      </small>
 
                     </div>
-                  )
-                )}
+
+                    <b>
+                      ৳
+                      {(
+                        getNumericPrice(
+                          item.price
+                        ) *
+                        item.quantity
+                      ).toLocaleString(
+                        "en-BD"
+                      )}
+                    </b>
+
+                  </div>
+                ))}
 
               </div>
-
-              {/* TOTALS */}
 
               <div className="summary-lines">
 
@@ -1522,8 +1407,6 @@ console.log(
 
               </div>
 
-              {/* PAYMENT STATUS */}
-
               <div className="summary-payment">
 
                 <div>
@@ -1554,8 +1437,6 @@ console.log(
                 </div>
 
               </div>
-
-              {/* SECURE NOTE */}
 
               <div className="secure-note">
 
