@@ -3300,117 +3300,96 @@ export default function Home() {
       ================================================= */}
 
       <section
-        className="product-section section"
-        id="product-explorer"
+  className="product-section section"
+  id="product-explorer"
+>
+  <div className="section-heading explore-heading">
+    <div>
+      <span className="eyebrow">
+        03 / EXPLORE
+      </span>
+
+      <h2 className="explore-title">
+        {activeCategory === "ALL"
+          ? "Shop the collection"
+          : activeCategory}
+      </h2>
+    </div>
+
+    <a
+      href="#product-explorer"
+      className="explore-view-link"
+    >
+      <span>VIEW COLLECTION</span>
+      <ArrowRight size={15} />
+    </a>
+  </div>
+
+  <div className="product-filter-bar premium-filter-bar">
+    {[
+      "ALL",
+      "SHIRT",
+      "POLO",
+      "T-SHIRT",
+      "PANT",
+      "DRESS",
+      "BAG",
+    ].map((category, index) => (
+      <button
+        key={category}
+        type="button"
+        className={
+          activeCategory === category
+            ? "premium-filter active"
+            : "premium-filter"
+        }
+        style={{
+          animationDelay: `${index * 0.05}s`,
+        }}
+        onClick={() =>
+          setActiveCategory(category)
+        }
       >
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">
-              03 / EXPLORE
-            </span>
+        <span className="filter-label">
+          {category}
+        </span>
 
-            <h2>
-              {activeCategory ===
-              "ALL"
-                ? "Shop the collection"
-                : activeCategory}
-            </h2>
-          </div>
+        <span className="filter-dot" />
+      </button>
+    ))}
+  </div>
 
-          <a
-            href="#product-explorer"
-            className="text-link"
-          >
-            VIEW COLLECTION
-            <ArrowRight size={16} />
-          </a>
-        </div>
-
-        <div className="product-filter-bar">
-          {[
-            "ALL",
-            "SHIRT",
-            "POLO",
-            "T-SHIRT",
-            "PANT",
-            "DRESS",
-            "BAG",
-          ].map(
-            (
-              category
-            ) => (
-              <button
-                key={
-                  category
-                }
-                type="button"
-                className={
-                  activeCategory ===
-                  category
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  setActiveCategory(
-                    category
-                  )
-                }
-              >
-                {
-                  category
-                }
-              </button>
-            )
+  {filteredProducts.length > 0 ? (
+    <div className="product-grid">
+      {filteredProducts.map((product) => (
+        <ProductCard
+          key={product.id}
+          product={product}
+          liked={liked.includes(
+            product.id
           )}
-        </div>
+          toggleLike={() =>
+            toggleLike(product.id)
+          }
+          onTryOn={openTryOn}
+          onQuickAdd={addToCart}
+        />
+      ))}
+    </div>
+  ) : (
+    <div className="empty-products">
+      <Search size={30} />
 
-        {filteredProducts.length >
-        0 ? (
-          <div className="product-grid">
-            {filteredProducts.map(
-              (
-                product
-              ) => (
-                <ProductCard
-                  key={
-                    product.id
-                  }
-                  product={
-                    product
-                  }
-                  liked={liked.includes(
-                    product.id
-                  )}
-                  toggleLike={() =>
-                    toggleLike(
-                      product.id
-                    )
-                  }
-                  onTryOn={
-                    openTryOn
-                  }
-                  onQuickAdd={
-                    addToCart
-                  }
-                />
-              )
-            )}
-          </div>
-        ) : (
-          <div className="empty-products">
-            <Search size={30} />
+      <strong>
+        No products found
+      </strong>
 
-            <strong>
-              No products found
-            </strong>
-
-            <span>
-              Try another search
-              or category.
-            </span>
-          </div>
-        )}
-      </section>
+      <span>
+        Try another search or category.
+      </span>
+    </div>
+  )}
+</section>
 
       {/* =================================================
           NEW ARRIVALS
