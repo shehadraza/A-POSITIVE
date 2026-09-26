@@ -3,8 +3,38 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+
+function getSafeRedirect() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  const params = new URLSearchParams(
+    window.location.search
+  );
+
+  const next = params.get("next");
+
+  if (!next) {
+    return "/";
+  }
+
+  // Only allow internal routes.
+  if (!next.startsWith("/") || next.startsWith("//")) {
+    return "/";
+  }
+
+  return next;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,37 +48,57 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  async function handleLogin(e: FormEvent<HTMLFormElement>) {
+  async function handleLogin(
+    e: FormEvent<HTMLFormElement>
+  ) {
     e.preventDefault();
 
     setError("");
     setSuccess("");
 
     if (!email.trim() || !password) {
-      setError("Please enter your email and password.");
+      setError(
+        "Please enter your email and password."
+      );
       return;
     }
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const {
+      data,
+      error: loginError,
+    } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
 
-    setLoading(false);
-
-    if (error) {
-      setError(error.message);
+    if (loginError) {
+      setLoading(false);
+      setError(loginError.message);
       return;
     }
 
-    setSuccess("Login successful. Welcome back!");
+    if (!data.session || !data.user) {
+      setLoading(false);
+      setError(
+        "Login succeeded but no active session was created. Please try again."
+      );
+      return;
+    }
+
+    const destination = getSafeRedirect();
+
+    setSuccess(
+      "Login successful. Welcome back!"
+    );
 
     router.refresh();
 
     setTimeout(() => {
-      router.push("/");
+      window.location.assign(
+        destination
+      );
     }, 500);
   }
 
@@ -57,15 +107,22 @@ export default function LoginPage() {
       <section className="auth-visual">
         <div className="auth-visual-overlay" />
 
-        <Link href="/" className="auth-back">
+        <Link
+          href="/"
+          className="auth-back"
+        >
           <ArrowLeft size={16} />
           Back to Store
         </Link>
 
         <div className="auth-visual-content">
-          <div className="auth-plus">A+</div>
+          <div className="auth-plus">
+            A+
+          </div>
 
-          <p className="auth-eyebrow">A-POSITIVE</p>
+          <p className="auth-eyebrow">
+            A-POSITIVE
+          </p>
 
           <h2>
             OWN
@@ -76,7 +133,8 @@ export default function LoginPage() {
           </h2>
 
           <p className="auth-visual-text">
-            Premium fashion. Timeless confidence.
+            Premium fashion. Timeless
+            confidence.
             <br />
             Your style, your identity.
           </p>
@@ -84,38 +142,58 @@ export default function LoginPage() {
 
         <div className="auth-visual-bottom">
           <span>BLUE DREAM</span>
-          <span>SHOPPING ZONE BD</span>
+          <span>
+            SHOPPING ZONE BD
+          </span>
           <span>A-POSITIVE</span>
         </div>
       </section>
 
       <section className="auth-form-side">
         <div className="auth-form-wrap">
-          <Link href="/" className="auth-mobile-logo">
+          <Link
+            href="/"
+            className="auth-mobile-logo"
+          >
             A-POSITIVE
           </Link>
 
           <div className="auth-heading">
             <span>WELCOME BACK</span>
-            <h1>Sign in to your account</h1>
+
+            <h1>
+              Sign in to your account
+            </h1>
+
             <p>
-              Access your orders, wishlist and personalized shopping
-              experience.
+              Access your orders,
+              wishlist and personalized
+              shopping experience.
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="auth-form">
+          <form
+            onSubmit={handleLogin}
+            className="auth-form"
+          >
             <div className="auth-field">
-              <label htmlFor="email">EMAIL ADDRESS</label>
+              <label htmlFor="email">
+                EMAIL ADDRESS
+              </label>
 
               <div className="auth-input-wrap">
                 <Mail size={18} />
+
                 <input
                   id="email"
                   type="email"
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) =>
+                    setEmail(
+                      e.target.value
+                    )
+                  }
                   autoComplete="email"
                   disabled={loading}
                 />
@@ -123,17 +201,27 @@ export default function LoginPage() {
             </div>
 
             <div className="auth-field">
-              <label htmlFor="password">PASSWORD</label>
+              <label htmlFor="password">
+                PASSWORD
+              </label>
 
               <div className="auth-input-wrap">
                 <LockKeyhole size={18} />
 
                 <input
                   id="password"
-                  type={showPassword ? "text" : "password"}
+                  type={
+                    showPassword
+                      ? "text"
+                      : "password"
+                  }
                   placeholder="Enter your password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) =>
+                    setPassword(
+                      e.target.value
+                    )
+                  }
                   autoComplete="current-password"
                   disabled={loading}
                 />
@@ -141,9 +229,16 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="auth-password-toggle"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() =>
+                    setShowPassword(
+                      (value) =>
+                        !value
+                    )
+                  }
                   aria-label={
-                    showPassword ? "Hide password" : "Show password"
+                    showPassword
+                      ? "Hide password"
+                      : "Show password"
                   }
                 >
                   {showPassword ? (
@@ -160,14 +255,24 @@ export default function LoginPage() {
                 <input
                   type="checkbox"
                   checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
+                  onChange={(e) =>
+                    setRemember(
+                      e.target.checked
+                    )
+                  }
                 />
-                <span>Remember me</span>
+
+                <span>
+                  Remember me
+                </span>
               </label>
             </div>
 
             {error && (
-              <div className="auth-message auth-error" role="alert">
+              <div
+                className="auth-message auth-error"
+                role="alert"
+              >
                 {error}
               </div>
             )}
@@ -187,23 +292,36 @@ export default function LoginPage() {
               className="auth-submit"
               disabled={loading}
             >
-              <span>{loading ? "SIGNING IN..." : "SIGN IN"}</span>
-              {!loading && <ArrowRight size={18} />}
+              <span>
+                {loading
+                  ? "SIGNING IN..."
+                  : "SIGN IN"}
+              </span>
+
+              {!loading && (
+                <ArrowRight size={18} />
+              )}
             </button>
           </form>
 
           <div className="auth-divider">
-            <span>NEW TO A-POSITIVE?</span>
+            <span>
+              NEW TO A-POSITIVE?
+            </span>
           </div>
 
-          <Link href="/register" className="auth-register">
+          <Link
+            href="/register"
+            className="auth-register"
+          >
             CREATE AN ACCOUNT
             <ArrowRight size={17} />
           </Link>
 
           <p className="auth-terms">
-            By continuing, you agree to our Terms & Conditions and Privacy
-            Policy.
+            By continuing, you agree to
+            our Terms & Conditions and
+            Privacy Policy.
           </p>
         </div>
       </section>
@@ -227,7 +345,12 @@ export default function LoginPage() {
               rgba(200, 164, 93, 0.2),
               transparent 28%
             ),
-            linear-gradient(135deg, #090909 0%, #111 55%, #181818 100%);
+            linear-gradient(
+              135deg,
+              #090909 0%,
+              #111 55%,
+              #181818 100%
+            );
           color: #fff;
           display: flex;
           flex-direction: column;
@@ -241,8 +364,15 @@ export default function LoginPage() {
           pointer-events: none;
           opacity: 0.18;
           background-image:
-            linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+            linear-gradient(
+              rgba(255, 255, 255, 0.04) 1px,
+              transparent 1px
+            ),
+            linear-gradient(
+              90deg,
+              rgba(255, 255, 255, 0.04) 1px,
+              transparent 1px
+            );
           background-size: 70px 70px;
         }
 
@@ -253,7 +383,12 @@ export default function LoginPage() {
           display: inline-flex;
           align-items: center;
           gap: 9px;
-          color: rgba(255,255,255,0.72);
+          color: rgba(
+            255,
+            255,
+            255,
+            0.72
+          );
           font-size: 11px;
           font-weight: 700;
           letter-spacing: 1.5px;
@@ -274,11 +409,20 @@ export default function LoginPage() {
         }
 
         .auth-plus {
-          font-size: clamp(110px, 15vw, 240px);
+          font-size: clamp(
+            110px,
+            15vw,
+            240px
+          );
           line-height: 0.72;
           font-weight: 800;
           letter-spacing: -18px;
-          color: rgba(255,255,255,0.035);
+          color: rgba(
+            255,
+            255,
+            255,
+            0.035
+          );
           margin-left: -18px;
           margin-bottom: 28px;
         }
@@ -293,7 +437,11 @@ export default function LoginPage() {
 
         .auth-visual-content h2 {
           margin: 0;
-          font-size: clamp(48px, 6vw, 92px);
+          font-size: clamp(
+            48px,
+            6vw,
+            92px
+          );
           line-height: 0.9;
           font-weight: 800;
           letter-spacing: -4px;
@@ -301,7 +449,12 @@ export default function LoginPage() {
 
         .auth-visual-text {
           margin: 30px 0 0;
-          color: rgba(255,255,255,0.58);
+          color: rgba(
+            255,
+            255,
+            255,
+            0.58
+          );
           font-size: 14px;
           line-height: 1.8;
         }
@@ -312,7 +465,12 @@ export default function LoginPage() {
           display: flex;
           justify-content: space-between;
           gap: 15px;
-          color: rgba(255,255,255,0.35);
+          color: rgba(
+            255,
+            255,
+            255,
+            0.35
+          );
           font-size: 9px;
           font-weight: 800;
           letter-spacing: 1.8px;
@@ -398,7 +556,9 @@ export default function LoginPage() {
           padding: 0 15px;
           border: 1px solid #e5e5e5;
           background: #fafafa;
-          transition: border-color 0.2s ease, background 0.2s ease;
+          transition:
+            border-color 0.2s ease,
+            background 0.2s ease;
         }
 
         .auth-input-wrap:focus-within {
@@ -492,7 +652,9 @@ export default function LoginPage() {
           font-weight: 800;
           letter-spacing: 2px;
           cursor: pointer;
-          transition: background 0.2s ease, color 0.2s ease;
+          transition:
+            background 0.2s ease,
+            color 0.2s ease;
         }
 
         .auth-submit:hover:not(:disabled) {
@@ -541,7 +703,9 @@ export default function LoginPage() {
           font-size: 9px;
           font-weight: 800;
           letter-spacing: 1.8px;
-          transition: border-color 0.2s ease, background 0.2s ease;
+          transition:
+            border-color 0.2s ease,
+            background 0.2s ease;
         }
 
         .auth-register:hover {

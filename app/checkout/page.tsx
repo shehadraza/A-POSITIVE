@@ -152,12 +152,9 @@ export default function CheckoutPage() {
           userData?.user;
 
         if (!user) {
-          router.replace(
-            "/login"
-          );
-
-          return;
-        }
+  router.replace("/login?next=/checkout");
+  return;
+}
 
         if (!mounted) {
           return;
