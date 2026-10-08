@@ -41,6 +41,7 @@ type Product = {
   image_url: string | null;
   stock: number;
   featured: boolean;
+  sizes: string[];
 };
 
 type CartItem = {
@@ -53,9 +54,13 @@ type CartItem = {
   category: string;
   stock: number;
   quantity: number;
+  size: string;
 };
 
 const supabase = createClient();
+
+const CART_KEY = "a_positive_cart";
+const WISHLIST_KEY = "a_positive_wishlist";
 
 /* =========================================================
    FALLBACK BRAND
@@ -85,18 +90,34 @@ const fallbackProducts: Product[] = [
     brand: "A-POSITIVE",
     category: "PANT",
     price: 2190,
+    sizes: [
+      "30",
+      "32",
+      "34",
+      "36",
+      "38",
+      "40",
+    ],
     old_price: 2690,
     image_url:
       "https://images.unsplash.com/photo-1506629905607-d9c297d5c7f2?auto=format&fit=crop&w=1000&q=90",
     stock: 20,
     featured: true,
   },
+
   {
     id: "fallback-ap-shirt",
     name: "A-Positive Signature Shirt",
     brand: "A-POSITIVE",
     category: "SHIRT",
     price: 1790,
+    sizes: [
+      "S",
+      "M",
+      "L",
+      "XL",
+      "XXL",
+    ],
     old_price: 2190,
     image_url:
       "https://images.unsplash.com/photo-1596755389378-c31d21fd1273?auto=format&fit=crop&w=1000&q=90",
@@ -113,6 +134,7 @@ const categories = [
   "ALL",
   "PANT",
   "SHIRT",
+  "PANJABI",
   "WOMEN",
   "BAG",
   "DRESS",
@@ -124,7 +146,9 @@ const categories = [
 ========================================================= */
 
 function money(value: number) {
-  return `৳${Number(value || 0).toLocaleString("en-BD")}`;
+  return `৳${Number(
+    value || 0
+  ).toLocaleString("en-BD")}`;
 }
 
 function normalizeText(value: unknown) {
@@ -152,144 +176,133 @@ function toNumber(value: unknown) {
     : 0;
 }
 
+function normalizeSizes(
+  value: unknown
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item: unknown) =>
+      String(item).trim()
+    )
+    .filter(Boolean);
+}
+
 function normalizeProduct(
-  row: any
+  row: unknown
 ): Product {
+  const item =
+    row !== null &&
+    typeof row === "object"
+      ? (row as Record<string, unknown>)
+      : {};
+
   return {
     id: String(
-      row?.id ?? ""
+      item.id ?? ""
     ),
 
     name: String(
-      row?.name ??
+      item.name ??
         "Untitled Product"
     ),
 
     brand:
-      row?.brand === null ||
-      row?.brand === undefined
+      item.brand === null ||
+      item.brand === undefined
         ? null
-        : String(row.brand),
+        : String(item.brand),
 
     category:
-      row?.category === null ||
-      row?.category === undefined
+      item.category === null ||
+      item.category === undefined
         ? null
-        : String(row.category),
+        : String(item.category),
 
     price: toNumber(
-      row?.price
+      item.price
     ),
 
     old_price:
-      row?.old_price !==
-        null &&
-      row?.old_price !==
+      item.old_price !== null &&
+      item.old_price !==
         undefined
         ? toNumber(
-            row.old_price
+            item.old_price
           )
-        : row?.oldPrice !==
+        : item.oldPrice !==
             null &&
-          row?.oldPrice !==
+          item.oldPrice !==
             undefined
         ? toNumber(
-            row.oldPrice
+            item.oldPrice
           )
         : null,
 
     image_url:
-      row?.image_url ??
-      row?.image ??
-      row?.imageUrl ??
-      null,
+      item.image_url ??
+      item.image ??
+      item.imageUrl ??
+      null
+        ? String(
+            item.image_url ??
+              item.image ??
+              item.imageUrl ??
+              ""
+          )
+        : null,
 
-    stock:
-      toNumber(
-        row?.stock
-      ),
+    stock: toNumber(
+      item.stock
+    ),
 
-    featured:
-      Boolean(
-        row?.featured
-      ),
+    featured: Boolean(
+      item.featured
+    ),
+
+    sizes: normalizeSizes(
+      item.sizes
+    ),
   };
 }
 
 /* =========================================================
-   PRODUCT -> CART
-========================================================= */
-
-function productToCartItem(
-  product: Product
-): CartItem {
-  return {
-    id: String(
-      product.id
-    ),
-
-    productId: String(
-      product.id
-    ),
-
-    name:
-      product.name,
-
-    brand:
-      product.brand ??
-      "A-POSITIVE",
-
-    price:
-      String(
-        product.price
-      ),
-
-    image:
-      product.image_url ??
-      "",
-
-    category:
-      product.category ??
-      "FASHION",
-
-    stock:
-      Number(
-        product.stock
-      ) || 0,
-
-    quantity: 1,
-  };
-}
-
-/* =========================================================
-   NORMALIZE STORED CART
+   STORED CART NORMALIZER
 ========================================================= */
 
 function normalizeStoredCartItem(
-  item: any
+  value: unknown
 ): CartItem | null {
   if (
-    !item ||
-    typeof item !==
-      "object"
+    value === null ||
+    typeof value !== "object"
   ) {
     return null;
   }
 
+  const item =
+    value as Record<
+      string,
+      unknown
+    >;
+
   const nestedProduct =
-    item.product &&
-    typeof item.product ===
-      "object"
-      ? item.product
+    item.product !== null &&
+    typeof item.product === "object"
+      ? (item.product as Record<
+          string,
+          unknown
+        >)
       : null;
 
-  const productId =
-    String(
-      item.productId ??
-        item.id ??
-        nestedProduct?.id ??
-        ""
-    );
+  const productId = String(
+    item.productId ??
+      item.id ??
+      nestedProduct?.id ??
+      ""
+  );
 
   if (!productId) {
     return null;
@@ -304,63 +317,67 @@ function normalizeStoredCartItem(
     return null;
   }
 
-  const price =
-    toNumber(
-      item.price ??
-        nestedProduct?.price ??
-        0
+  const price = toNumber(
+    item.price ??
+      nestedProduct?.price ??
+      0
+  );
+
+  const productSizes =
+    normalizeSizes(
+      nestedProduct?.sizes
     );
 
   return {
-    id:
-      productId,
+    id: String(
+      item.id ??
+        `${productId}-${String(
+          item.size ?? ""
+        )}`
+    ),
 
-    productId:
-      productId,
+    productId,
 
-    name:
-      String(name),
+    name: String(name),
 
-    brand:
-      String(
-        item.brand ??
-          nestedProduct?.brand ??
-          "A-POSITIVE"
-      ),
+    brand: String(
+      item.brand ??
+        nestedProduct?.brand ??
+        "A-POSITIVE"
+    ),
 
-    price:
-      String(price),
+    price: String(price),
 
-    image:
-      String(
-        item.image ??
-          nestedProduct?.image ??
-          nestedProduct?.image_url ??
-          ""
-      ),
+    image: String(
+      item.image ??
+        nestedProduct?.image ??
+        nestedProduct?.image_url ??
+        ""
+    ),
 
-    category:
-      String(
-        item.category ??
-          nestedProduct?.category ??
-          "FASHION"
-      ),
+    category: String(
+      item.category ??
+        nestedProduct?.category ??
+        "FASHION"
+    ),
 
-    stock:
-      toNumber(
-        item.stock ??
-          nestedProduct?.stock ??
-          0
-      ),
+    stock: toNumber(
+      item.stock ??
+        nestedProduct?.stock ??
+        0
+    ),
 
-    quantity:
-      Math.max(
-        1,
-        Number(
-          item.quantity ??
-            1
-        )
-      ),
+    quantity: Math.max(
+      1,
+      Number(
+        item.quantity ?? 1
+      )
+    ),
+
+    size: String(
+      item.size ??
+        ""
+    ),
   };
 }
 
@@ -387,9 +404,7 @@ export default function APositiveBrandPage() {
   const [
     activeCategory,
     setActiveCategory,
-  ] = useState(
-    "ALL"
-  );
+  ] = useState("ALL");
 
   const [
     cartItems,
@@ -420,7 +435,7 @@ export default function APositiveBrandPage() {
     function readCart() {
       const savedCart =
         localStorage.getItem(
-          "a_positive_cart"
+          CART_KEY
         );
 
       if (!savedCart) {
@@ -429,15 +444,13 @@ export default function APositiveBrandPage() {
       }
 
       try {
-        const parsed =
+        const parsed: unknown =
           JSON.parse(
             savedCart
           );
 
         if (
-          !Array.isArray(
-            parsed
-          )
+          !Array.isArray(parsed)
         ) {
           setCartItems([]);
           return;
@@ -447,7 +460,7 @@ export default function APositiveBrandPage() {
           parsed
             .map(
               (
-                item
+                item: unknown
               ) =>
                 normalizeStoredCartItem(
                   item
@@ -476,7 +489,7 @@ export default function APositiveBrandPage() {
     function readWishlist() {
       const savedWishlist =
         localStorage.getItem(
-          "a_positive_wishlist"
+          WISHLIST_KEY
         );
 
       if (!savedWishlist) {
@@ -485,19 +498,19 @@ export default function APositiveBrandPage() {
       }
 
       try {
-        const parsed =
+        const parsed: unknown =
           JSON.parse(
             savedWishlist
           );
 
         if (
-          Array.isArray(
-            parsed
-          )
+          Array.isArray(parsed)
         ) {
           setWishlistIds(
             parsed.map(
-              (id) =>
+              (
+                id: unknown
+              ) =>
                 String(id)
             )
           );
@@ -545,15 +558,7 @@ export default function APositiveBrandPage() {
 
   /* =======================================================
      LOAD BRAND + REAL PRODUCTS
-     
-     IMPORTANT:
-     Product filtering supports:
-     - A-POSITIVE
-     - a-positive
-     - A Positive
-     - brand slug
-     - brand id
-     ======================================================= */
+  ======================================================= */
 
   useEffect(() => {
     let cancelled = false;
@@ -561,7 +566,7 @@ export default function APositiveBrandPage() {
     async function loadBrandAndProducts() {
       try {
         /* -----------------------------------------------
-           FIRST: LOAD BRAND
+           BRAND
         ------------------------------------------------ */
 
         const {
@@ -582,9 +587,7 @@ export default function APositiveBrandPage() {
           )
           .maybeSingle();
 
-        if (
-          cancelled
-        ) {
+        if (cancelled) {
           return;
         }
 
@@ -599,17 +602,7 @@ export default function APositiveBrandPage() {
         );
 
         /* -----------------------------------------------
-           SECOND: LOAD ALL PRODUCTS
-
-           Do NOT use:
-           .ilike("brand", "A-POSITIVE")
-
-           because Admin may store:
-           A-POSITIVE
-           A Positive
-           a-positive
-           brand UUID
-           etc.
+           PRODUCTS
         ------------------------------------------------ */
 
         const {
@@ -618,34 +611,28 @@ export default function APositiveBrandPage() {
         } = await supabase
           .from("products")
           .select(
-            "id,name,brand,category,price,old_price,image_url,stock,featured,created_at"
+            "id,name,brand,category,price,old_price,image_url,stock,featured,sizes,created_at"
           )
           .order(
             "featured",
             {
-              ascending:
-                false,
+              ascending: false,
             }
           )
           .order(
             "created_at",
             {
-              ascending:
-                false,
+              ascending: false,
             }
           );
 
-        if (
-          productError
-        ) {
+        if (productError) {
           console.error(
             "A-POSITIVE PRODUCTS DATABASE ERROR:",
             productError
           );
 
-          if (
-            !cancelled
-          ) {
+          if (!cancelled) {
             setProducts(
               fallbackProducts
             );
@@ -660,53 +647,44 @@ export default function APositiveBrandPage() {
 
         const allProducts =
           (
-            productRows ??
-            []
+            productRows ?? []
           ).map(
-            normalizeProduct
+            (
+              row: unknown
+            ) =>
+              normalizeProduct(
+                row
+              )
           );
 
-        console.log(
-          "ALL SUPABASE PRODUCTS:",
-          allProducts
-        );
-
         /* -----------------------------------------------
-           ALL POSSIBLE BRAND VALUES
+           BRAND MATCH VALUES
         ------------------------------------------------ */
 
         const possibleBrandValues =
           [
             "A-POSITIVE",
-
             "A Positive",
-
             "a-positive",
-
             currentBrand.name,
-
             currentBrand.slug,
-
             currentBrand.id,
           ]
-            .filter(Boolean)
+            .filter(
+              Boolean
+            )
             .map(
               normalizeText
             );
 
-        console.log(
-          "A-POSITIVE BRAND MATCH VALUES:",
-          possibleBrandValues
-        );
-
         /* -----------------------------------------------
-           FILTER ACTUAL A-POSITIVE PRODUCTS
+           ACTUAL A-POSITIVE PRODUCTS
         ------------------------------------------------ */
 
         const aPositiveProducts =
           allProducts.filter(
             (
-              product
+              product: Product
             ) => {
               const productBrand =
                 normalizeText(
@@ -718,15 +696,6 @@ export default function APositiveBrandPage() {
               );
             }
           );
-
-        console.log(
-          "A-POSITIVE PRODUCTS FOUND:",
-          aPositiveProducts
-        );
-
-        /* -----------------------------------------------
-           REAL PRODUCTS FOUND
-        ------------------------------------------------ */
 
         if (
           aPositiveProducts.length >
@@ -744,13 +713,13 @@ export default function APositiveBrandPage() {
         }
 
         /* -----------------------------------------------
-           TRY NAME BASED MATCH AS EXTRA SAFETY
+           EXTRA NAME MATCH
         ------------------------------------------------ */
 
         const nameBasedProducts =
           allProducts.filter(
             (
-              product
+              product: Product
             ) =>
               normalizeText(
                 product.brand
@@ -758,11 +727,6 @@ export default function APositiveBrandPage() {
                 "apositive"
               )
           );
-
-        console.log(
-          "A-POSITIVE NAME MATCH:",
-          nameBasedProducts
-        );
 
         if (
           nameBasedProducts.length >
@@ -780,12 +744,8 @@ export default function APositiveBrandPage() {
         }
 
         /* -----------------------------------------------
-           NOTHING FOUND
+           FALLBACK
         ------------------------------------------------ */
-
-        console.warn(
-          "No A-POSITIVE products found in Supabase."
-        );
 
         setProducts(
           fallbackProducts
@@ -800,9 +760,7 @@ export default function APositiveBrandPage() {
           error
         );
 
-        if (
-          !cancelled
-        ) {
+        if (!cancelled) {
           setProducts(
             fallbackProducts
           );
@@ -829,10 +787,8 @@ export default function APositiveBrandPage() {
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
-            table:
-              "brands",
+            schema: "public",
+            table: "brands",
             filter:
               "slug=eq.a-positive",
           },
@@ -843,7 +799,7 @@ export default function APositiveBrandPage() {
         .subscribe();
 
     /* ===================================================
-       PRODUCT REALTIME
+       PRODUCTS REALTIME
     =================================================== */
 
     const productsChannel =
@@ -855,10 +811,8 @@ export default function APositiveBrandPage() {
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
-            table:
-              "products",
+            schema: "public",
+            table: "products",
           },
           () => {
             loadBrandAndProducts();
@@ -908,7 +862,7 @@ export default function APositiveBrandPage() {
   ]);
 
   /* =======================================================
-     FILTER PRODUCTS
+     FILTER
   ======================================================= */
 
   const visibleProducts =
@@ -922,7 +876,7 @@ export default function APositiveBrandPage() {
 
       return products.filter(
         (
-          product
+          product: Product
         ) =>
           normalizeText(
             product.category
@@ -945,8 +899,8 @@ export default function APositiveBrandPage() {
       () =>
         cartItems.reduce(
           (
-            total,
-            item
+            total: number,
+            item: CartItem
           ) =>
             total +
             Number(
@@ -966,8 +920,8 @@ export default function APositiveBrandPage() {
       () =>
         cartItems.reduce(
           (
-            total,
-            item
+            total: number,
+            item: CartItem
           ) =>
             total +
             Number(
@@ -989,17 +943,13 @@ export default function APositiveBrandPage() {
     productId: string
   ) {
     const id =
-      String(
-        productId
-      );
+      String(productId);
 
     const next =
-      wishlistIds.includes(
-        id
-      )
+      wishlistIds.includes(id)
         ? wishlistIds.filter(
             (
-              item
+              item: string
             ) =>
               item !== id
           )
@@ -1013,7 +963,7 @@ export default function APositiveBrandPage() {
     );
 
     localStorage.setItem(
-      "a_positive_wishlist",
+      WISHLIST_KEY,
       JSON.stringify(
         next
       )
@@ -1029,142 +979,198 @@ export default function APositiveBrandPage() {
   /* =======================================================
      ADD TO CART
   ======================================================= */
-function addToCart(product: Product) {
-  /*
-   * ONLY block actual fallback/demo products.
-   * Do NOT use usingFallbackProducts here.
-   */
-  if (
-    product.id.startsWith("fallback-")
+
+  async function addToCart(
+    product: Product
   ) {
-    setCartNotice(
-      "This is a preview product. Please add the real product from Admin first."
-    );
-
-    return;
-  }
-
-  if (product.stock <= 0) {
-    setCartNotice(
-      "This product is currently sold out."
-    );
-
-    return;
-  }
-
-  setCartItems((current) => {
-    const existing = current.find(
-      (item) =>
-        item.productId === product.id
-    );
-
-    let next: CartItem[];
-
-    if (existing) {
-      const nextQuantity = Math.min(
-        Number(existing.quantity) + 1,
-        Math.max(
-          Number(product.stock),
-          1
-        )
+    if (
+      product.id.startsWith(
+        "fallback-"
+      )
+    ) {
+      setCartNotice(
+        "This is a preview product. Please add the real product from Admin first."
       );
 
-      next = current.map((item) => {
-        if (
-          item.productId !==
-          product.id
-        ) {
-          return item;
-        }
-
-        return {
-          ...item,
-
-          id: String(product.id),
-
-          productId:
-            String(product.id),
-
-          name: product.name,
-
-          brand:
-            product.brand ??
-            "A-POSITIVE",
-
-          price:
-            String(product.price),
-
-          image:
-            product.image_url ??
-            "",
-
-          category:
-            product.category ??
-            "FASHION",
-
-          stock:
-            Number(product.stock) ||
-            0,
-
-          quantity:
-            nextQuantity,
-        };
-      });
-    } else {
-      next = [
-        ...current,
-        {
-          id: String(product.id),
-
-          productId:
-            String(product.id),
-
-          name:
-            product.name,
-
-          brand:
-            product.brand ??
-            "A-POSITIVE",
-
-          price:
-            String(product.price),
-
-          image:
-            product.image_url ??
-            "",
-
-          category:
-            product.category ??
-            "FASHION",
-
-          stock:
-            Number(product.stock) ||
-            0,
-
-          quantity: 1,
-        },
-      ];
+      return;
     }
 
-    localStorage.setItem(
-      "a_positive_cart",
-      JSON.stringify(next)
+    if (
+      product.stock <= 0
+    ) {
+      setCartNotice(
+        "This product is currently sold out."
+      );
+
+      return;
+    }
+
+    /* -----------------------------------------------
+       LOGIN CHECK
+    ------------------------------------------------ */
+
+    
+
+    /* -----------------------------------------------
+       SIZE CHECK
+    ------------------------------------------------ */
+
+    if (
+      product.sizes.length >
+      0
+    ) {
+      setCartNotice(
+        "Please open the product and select a size first."
+      );
+
+      window.location.href =
+        `/products/${product.id}`;
+
+      return;
+    }
+
+    setCartItems(
+      (current: CartItem[]) => {
+        const existing =
+          current.find(
+            (
+              item: CartItem
+            ) =>
+              item.productId ===
+                product.id &&
+              item.size === ""
+          );
+
+        let next: CartItem[];
+
+        if (existing) {
+          const nextQuantity =
+            Math.min(
+              Number(
+                existing.quantity
+              ) + 1,
+              Math.max(
+                Number(
+                  product.stock
+                ),
+                1
+              )
+            );
+
+          next =
+            current.map(
+              (
+                item: CartItem
+              ) => {
+                if (
+                  item.productId !==
+                    product.id ||
+                  item.size !==
+                    ""
+                ) {
+                  return item;
+                }
+
+                return {
+                  ...item,
+                  id: String(
+                    product.id
+                  ),
+                  productId:
+                    String(
+                      product.id
+                    ),
+                  name:
+                    product.name,
+                  brand:
+                    product.brand ??
+                    "A-POSITIVE",
+                  price:
+                    String(
+                      product.price
+                    ),
+                  image:
+                    product.image_url ??
+                    "",
+                  category:
+                    product.category ??
+                    "FASHION",
+                  stock:
+                    Number(
+                      product.stock
+                    ) || 0,
+                  quantity:
+                    nextQuantity,
+                  size: "",
+                };
+              }
+            );
+        } else {
+          next = [
+            ...current,
+            {
+              id: String(
+                product.id
+              ),
+
+              productId:
+                String(
+                  product.id
+                ),
+
+              name:
+                product.name,
+
+              brand:
+                product.brand ??
+                "A-POSITIVE",
+
+              price:
+                String(
+                  product.price
+                ),
+
+              image:
+                product.image_url ??
+                "",
+
+              category:
+                product.category ??
+                "FASHION",
+
+              stock:
+                Number(
+                  product.stock
+                ) || 0,
+
+              quantity: 1,
+
+              size: "",
+            },
+          ];
+        }
+
+        localStorage.setItem(
+          CART_KEY,
+          JSON.stringify(
+            next
+          )
+        );
+
+        window.dispatchEvent(
+          new Event(
+            "a_positive_cart_updated"
+          )
+        );
+
+        return next;
+      }
     );
 
-    window.dispatchEvent(
-      new Event(
-        "a_positive_cart_updated"
-      )
+    setCartNotice(
+      `${product.name} added to your bag.`
     );
-
-    return next;
-  });
-
-  setCartNotice(
-    `${product.name} added to your bag.`
-  );
-}
-  
+  }
 
   /* =======================================================
      COLORS
@@ -1198,6 +1204,7 @@ function addToCart(product: Product) {
           "#11100e",
       }}
     >
+
       {/* ===================================================
           NAVBAR
       =================================================== */}
@@ -1259,27 +1266,19 @@ function addToCart(product: Product) {
               gap: 26,
             }}
           >
-            <Link
-              href="/"
-            >
+            <Link href="/">
               HOME
             </Link>
 
-            <a
-              href="#collection"
-            >
+            <a href="#collection">
               SHOP
             </a>
 
-            <Link
-              href="/brands/blue-dream"
-            >
+            <Link href="/brands/blue-dream">
               BLUE DREAM
             </Link>
 
-            <Link
-              href="/brands/shopping-zone-bd"
-            >
+            <Link href="/brands/shopping-zone-bd">
               SHOPPING ZONE BD
             </Link>
           </nav>
@@ -1312,9 +1311,7 @@ function addToCart(product: Product) {
                   "#11100e",
               }}
             >
-              <Heart
-                size={17}
-              />
+              <Heart size={17} />
 
               {wishlistIds.length >
                 0 && (
@@ -1396,9 +1393,7 @@ function addToCart(product: Product) {
                     fontSize: 8,
                   }}
                 >
-                  {
-                    cartCount
-                  }
+                  {cartCount}
                 </span>
               )}
             </Link>
@@ -1511,9 +1506,7 @@ function addToCart(product: Product) {
                   "-0.055em",
               }}
             >
-              {
-                brand.name
-              }
+              {brand.name}
             </h1>
 
             <div
@@ -1564,6 +1557,7 @@ function addToCart(product: Product) {
                 }}
               >
                 EXPLORE COLLECTION
+
                 <ArrowRight
                   size={14}
                 />
@@ -1593,6 +1587,7 @@ function addToCart(product: Product) {
                 }}
               >
                 VIEW BAG
+
                 <ShoppingBag
                   size={14}
                 />
@@ -1716,7 +1711,7 @@ function addToCart(product: Product) {
         >
           {categories.map(
             (
-              category
+              category: string
             ) => {
               const active =
                 activeCategory ===
@@ -1875,7 +1870,7 @@ function addToCart(product: Product) {
           </div>
         )}
 
-        {/* REAL PRODUCTS */}
+        {/* PRODUCTS */}
 
         {visibleProducts.length >
         0 ? (
@@ -1891,7 +1886,7 @@ function addToCart(product: Product) {
           >
             {visibleProducts.map(
               (
-                product
+                product: Product
               ) => {
                 const liked =
                   wishlistIds.includes(
@@ -1902,6 +1897,10 @@ function addToCart(product: Product) {
                   product.id.startsWith(
                     "fallback-"
                   );
+
+                const hasSizes =
+                  product.sizes.length >
+                  0;
 
                 return (
                   <article
@@ -1983,9 +1982,10 @@ function addToCart(product: Product) {
                       <button
                         type="button"
                         disabled={
-  isFallback ||
-  product.stock <= 0
-}
+                          isFallback ||
+                          product.stock <=
+                            0
+                        }
                         onClick={() => {
                           if (
                             !isFallback
@@ -2153,7 +2153,9 @@ function addToCart(product: Product) {
                           ? "PREVIEW ONLY"
                           : product.stock >
                             0
-                          ? "QUICK ADD"
+                          ? hasSizes
+                            ? "SELECT SIZE"
+                            : "QUICK ADD"
                           : "SOLD OUT"}
                       </button>
                     </div>
@@ -2234,6 +2236,48 @@ function addToCart(product: Product) {
                                 product.name
                               }
                             </Link>
+                          )}
+
+                          {hasSizes &&
+                            !isFallback && (
+                            <div
+                              style={{
+                                marginTop:
+                                  8,
+                                display:
+                                  "flex",
+                                flexWrap:
+                                  "wrap",
+                                gap:
+                                  4,
+                              }}
+                            >
+                              {product.sizes.map(
+                                (
+                                  size: string
+                                ) => (
+                                  <span
+                                    key={
+                                      size
+                                    }
+                                    style={{
+                                      padding:
+                                        "4px 6px",
+                                      border:
+                                        "1px solid rgba(17,16,14,.12)",
+                                      fontSize:
+                                        8,
+                                      opacity:
+                                        0.58,
+                                    }}
+                                  >
+                                    {
+                                      size
+                                    }
+                                  </span>
+                                )
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -2435,6 +2479,7 @@ function addToCart(product: Product) {
               }}
             >
               EXPLORE EVERYTHING
+
               <ArrowRight
                 size={14}
               />
@@ -2538,10 +2583,7 @@ function addToCart(product: Product) {
                       32,
                   }}
                 >
-                  {
-                    cartCount
-                  }{" "}
-                  items ·{" "}
+                  {cartCount} items ·{" "}
                   {money(
                     cartSubtotal
                   )}
@@ -2582,6 +2624,7 @@ function addToCart(product: Product) {
                   }}
                 >
                   VIEW CART
+
                   <ShoppingBag
                     size={14}
                   />
@@ -2610,6 +2653,7 @@ function addToCart(product: Product) {
                   }}
                 >
                   CHECKOUT
+
                   <ArrowRight
                     size={14}
                   />
@@ -2695,6 +2739,7 @@ function addToCart(product: Product) {
           }}
         >
           GO TO BAG
+
           <ShoppingBag
             size={14}
           />
@@ -2763,9 +2808,7 @@ function addToCart(product: Product) {
                     0.78,
                 }}
               >
-                {
-                  cartNotice
-                }
+                {cartNotice}
               </div>
             </div>
 

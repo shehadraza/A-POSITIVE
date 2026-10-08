@@ -3,15 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Heart,
   Minus,
   Plus,
   ShoppingBag,
-  Sparkles,
 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase";
@@ -30,6 +29,7 @@ type Product = {
   image_url: string | null;
   stock: number;
   featured: boolean;
+  sizes: string[];
 };
 
 type CartItem = {
@@ -42,115 +42,199 @@ type CartItem = {
   category: string;
   stock: number;
   quantity: number;
+  size: string;
+  product: Product;
 };
 
-type RelatedProduct = Product;
-
 const supabase = createClient();
+
+const CART_KEY = "a_positive_cart";
+const WISHLIST_KEY = "a_positive_wishlist";
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
 function money(value: number) {
-  return `৳${Number(
-    value || 0
-  ).toLocaleString("en-BD")}`;
+  return `৳${Number(value || 0).toLocaleString("en-BD")}`;
 }
 
-function normalizeText(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
+function normalizeSizes(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean);
 }
 
-function toNumber(value: unknown) {
-  const cleaned = String(
-    value ?? ""
-  ).replace(/[^\d.-]/g, "");
-
-  const parsed = Number(cleaned);
-
-  return Number.isFinite(parsed)
-    ? parsed
-    : 0;
-}
-
-function normalizeProduct(
-  row: any
-): Product {
+function normalizeProduct(row: any): Product {
   return {
-    id: String(
-      row?.id ?? ""
-    ),
-
+    id: String(row?.id ?? ""),
     name: String(
-      row?.name ??
-        "Untitled Product"
+      row?.name ?? "Untitled Product"
     ),
-
     brand:
       row?.brand === null ||
       row?.brand === undefined
         ? null
         : String(row.brand),
-
     category:
       row?.category === null ||
       row?.category === undefined
         ? null
         : String(row.category),
-
-    price: toNumber(
-      row?.price
-    ),
-
+    price: Number(row?.price ?? 0),
     old_price:
-      row?.old_price !== null &&
-      row?.old_price !== undefined
-        ? toNumber(
-            row.old_price
-          )
-        : row?.oldPrice !==
-            null &&
-          row?.oldPrice !==
-            undefined
-        ? toNumber(
-            row.oldPrice
-          )
-        : null,
-
+      row?.old_price === null ||
+      row?.old_price === undefined
+        ? null
+        : Number(row.old_price),
     image_url:
-      row?.image_url ??
-      row?.image ??
-      row?.imageUrl ??
-      null,
-
-    stock: toNumber(
-      row?.stock
-    ),
-
-    featured:
-      Boolean(
-        row?.featured
-      ),
+      row?.image_url ?? null,
+    stock: Number(row?.stock ?? 0),
+    featured: Boolean(row?.featured),
+    sizes: normalizeSizes(row?.sizes),
   };
 }
 
 /* =========================================================
-   PRODUCT -> FULL CART ITEM
+   NORMALIZE CART
+========================================================= */
+
+function normalizeStoredCartItem(
+  item: any
+): CartItem | null {
+  if (
+    !item ||
+    typeof item !== "object"
+  ) {
+    return null;
+  }
+
+  const nestedProduct =
+    item.product &&
+    typeof item.product === "object"
+      ? item.product
+      : null;
+
+  const productId = String(
+    item.productId ??
+      nestedProduct?.id ??
+      item.id ??
+      ""
+  );
+
+  if (!productId) {
+    return null;
+  }
+
+  const productSource =
+    nestedProduct ?? item;
+
+  if (!productSource?.name) {
+    return null;
+  }
+
+  const product: Product = {
+    id: productId,
+    name: String(
+      productSource.name
+    ),
+    brand:
+      productSource.brand ??
+      "A-POSITIVE",
+    category:
+      productSource.category ??
+      "FASHION",
+    price: Number(
+      productSource.price ?? 0
+    ),
+    old_price:
+      productSource.old_price !==
+        undefined &&
+      productSource.old_price !==
+        null
+        ? Number(
+            productSource.old_price
+          )
+        : null,
+    image_url:
+      productSource.image_url ??
+      productSource.image ??
+      "",
+    stock: Number(
+      productSource.stock ?? 0
+    ),
+    featured: Boolean(
+      productSource.featured
+    ),
+    sizes: normalizeSizes(
+      productSource.sizes
+    ),
+  };
+
+  return {
+    id: String(
+      item.id ??
+        `${product.id}-${item.size ?? ""}`
+    ),
+
+    productId:
+      product.id,
+
+    name:
+      product.name,
+
+    brand:
+      product.brand ??
+      "A-POSITIVE",
+
+    price:
+      String(product.price),
+
+    image:
+      product.image_url ?? "",
+
+    category:
+      product.category ??
+      "FASHION",
+
+    stock:
+      product.stock,
+
+    quantity: Math.max(
+      1,
+      Number(
+        item.quantity ?? 1
+      )
+    ),
+
+    size:
+      item.size
+        ? String(item.size)
+        : "",
+
+    product,
+  };
+}
+
+/* =========================================================
+   CART ITEM CREATOR
 ========================================================= */
 
 function productToCartItem(
   product: Product,
-  quantity: number
+  quantity: number,
+  size: string
 ): CartItem {
   return {
     id:
-      String(product.id),
+      `${product.id}-${size || "default"}`,
 
     productId:
-      String(product.id),
+      product.id,
 
     name:
       product.name,
@@ -171,308 +255,51 @@ function productToCartItem(
       "FASHION",
 
     stock:
-      Number(product.stock) ||
-      0,
+      Number(product.stock) || 0,
 
-    quantity:
-      Math.max(
-        1,
-        Number(quantity) || 1
-      ),
+    quantity,
+
+    size,
+
+    product,
   };
-}
-
-/* =========================================================
-   NORMALIZE STORED CART ITEM
-
-   Supports old:
-   { productId, quantity }
-
-   and new:
-   {
-     id,
-     productId,
-     name,
-     brand,
-     price,
-     image,
-     category,
-     stock,
-     quantity
-   }
-
-   and nested:
-   { product: {...}, quantity }
-========================================================= */
-
-function normalizeStoredCartItem(
-  item: any
-): CartItem | null {
-  if (
-    !item ||
-    typeof item !==
-      "object"
-  ) {
-    return null;
-  }
-
-  const nested =
-    item.product &&
-    typeof item.product ===
-      "object"
-      ? item.product
-      : null;
-
-  const productId =
-    String(
-      item.productId ??
-        item.id ??
-        nested?.id ??
-        ""
-    );
-
-  if (!productId) {
-    return null;
-  }
-
-  const name =
-    item.name ??
-    nested?.name ??
-    "";
-
-  /*
-   * Old compact cart may only have:
-   * productId + quantity
-   *
-   * In that case we cannot construct a checkout-safe
-   * cart item without the product details.
-   */
-  if (!name) {
-    return null;
-  }
-
-  const price =
-    toNumber(
-      item.price ??
-        nested?.price ??
-        0
-    );
-
-  return {
-    id:
-      productId,
-
-    productId:
-      productId,
-
-    name:
-      String(name),
-
-    brand:
-      String(
-        item.brand ??
-          nested?.brand ??
-          "A-POSITIVE"
-      ),
-
-    price:
-      String(price),
-
-    image:
-      String(
-        item.image ??
-          nested?.image ??
-          nested?.image_url ??
-          ""
-      ),
-
-    category:
-      String(
-        item.category ??
-          nested?.category ??
-          "FASHION"
-      ),
-
-    stock:
-      toNumber(
-        item.stock ??
-          nested?.stock ??
-          0
-      ),
-
-    quantity:
-      Math.max(
-        1,
-        Number(
-          item.quantity ??
-            1
-        )
-      ),
-  };
-}
-
-/* =========================================================
-   BRAND ROUTE
-========================================================= */
-
-function getBrandRoute(
-  brand: string | null
-) {
-  const normalized =
-    normalizeText(
-      brand
-    );
-
-  const compact =
-    normalized.replace(
-      /[^a-z0-9]/g,
-      ""
-    );
-
-  if (
-    normalized ===
-      "a-positive" ||
-    normalized ===
-      "a positive" ||
-    compact ===
-      "apositive"
-  ) {
-    return "/brands/a-positive";
-  }
-
-  if (
-    normalized ===
-      "blue dream"
-  ) {
-    return "/brands/blue-dream";
-  }
-
-  if (
-    normalized ===
-      "shopping zone bd"
-  ) {
-    return "/brands/shopping-zone-bd";
-  }
-
-  return "/";
-}
-
-/* =========================================================
-   BRAND COLOR
-========================================================= */
-
-function getBrandColor(
-  brand: string | null
-) {
-  const normalized =
-    normalizeText(
-      brand
-    );
-
-  if (
-    normalized ===
-    "blue dream"
-  ) {
-    return "#071A38";
-  }
-
-  if (
-    normalized ===
-    "shopping zone bd"
-  ) {
-    return "#8E101D";
-  }
-
-  return "#11100E";
 }
 
 /* =========================================================
    PAGE
 ========================================================= */
 
-export default function ProductDetailPage() {
-  const params =
-    useParams<{
-      id: string;
-    }>();
+export default function ProductDetailsPage() {
+  const params = useParams();
+  const router = useRouter();
 
-  const router =
-    useRouter();
+  const productId = String(
+    params?.id ?? ""
+  );
 
-  const productId =
-    params?.id;
+  const [product, setProduct] =
+    useState<Product | null>(null);
 
-  const [
-    product,
-    setProduct,
-  ] =
-    useState<Product | null>(
-      null
-    );
+  const [relatedProducts, setRelatedProducts] =
+    useState<Product[]>([]);
 
-  const [
-    relatedProducts,
-    setRelatedProducts,
-  ] =
-    useState<
-      RelatedProduct[]
-    >([]);
-
-  const [
-    loading,
-    setLoading,
-  ] =
+  const [loading, setLoading] =
     useState(true);
 
-  const [
-    error,
-    setError,
-  ] =
-    useState<string | null>(
-      null
-    );
+  const [selectedSize, setSelectedSize] =
+    useState("");
 
-  const [
-    quantity,
-    setQuantity,
-  ] =
+  const [quantity, setQuantity] =
     useState(1);
 
-  const [
-    wishlistIds,
-    setWishlistIds,
-  ] =
-    useState<string[]>(
-      []
-    );
-
-  const [
-    cartItems,
-    setCartItems,
-  ] =
-    useState<CartItem[]>(
-      []
-    );
-
-  const [
-    added,
-    setAdded,
-  ] =
+  const [liked, setLiked] =
     useState(false);
 
-  const [
-    buying,
-    setBuying,
-  ] =
-    useState(false);
+  const [notice, setNotice] =
+    useState("");
 
-  const [
-    actionMessage,
-    setActionMessage,
-  ] =
-    useState<string | null>(
-      null
-    );
+  const [adding, setAdding] =
+    useState(false);
 
   /* =======================================================
      LOAD PRODUCT
@@ -483,21 +310,18 @@ export default function ProductDetailPage() {
       return;
     }
 
-    let cancelled =
-      false;
+    let cancelled = false;
 
     async function loadProduct() {
       setLoading(true);
-      setError(null);
 
       const {
         data,
-        error:
-          productError,
+        error,
       } = await supabase
         .from("products")
         .select(
-          "id,name,brand,category,price,old_price,image_url,stock,featured"
+          "id,name,brand,category,price,old_price,image_url,stock,featured,sizes"
         )
         .eq(
           "id",
@@ -512,147 +336,99 @@ export default function ProductDetailPage() {
       }
 
       if (
-        productError
+        error ||
+        !data
       ) {
         console.error(
           "PRODUCT LOAD ERROR:",
-          productError
+          error
         );
 
-        setError(
-          productError.message ||
-            "Unable to load this product."
-        );
-
-        setLoading(false);
-
-        return;
-      }
-
-      if (!data) {
         setProduct(null);
-
-        setError(
-          "Product not found."
-        );
-
         setLoading(false);
 
         return;
       }
 
-      const currentProduct =
+      const normalized =
         normalizeProduct(
           data
         );
 
       setProduct(
-        currentProduct
+        normalized
       );
 
       if (
-        currentProduct.stock >
-        0
+        normalized.sizes.length >
+          0
       ) {
-        setQuantity(
-          (
-            current
-          ) =>
-            Math.min(
-              Math.max(
-                current,
-                1
-              ),
-              currentProduct.stock
-            )
+        setSelectedSize(
+          normalized.sizes[0]
         );
       } else {
-        setQuantity(1);
+        setSelectedSize("");
       }
 
-      /* =================================================
-         RELATED PRODUCTS
-      ================================================= */
+      setQuantity(1);
 
-      let relatedQuery =
-        supabase
+      setLoading(false);
+
+      /* -----------------------------------------------
+         RELATED PRODUCTS
+      ------------------------------------------------ */
+
+      if (normalized.brand) {
+        const {
+          data: relatedData,
+        } = await supabase
           .from("products")
           .select(
-            "id,name,brand,category,price,old_price,image_url,stock,featured"
+            "id,name,brand,category,price,old_price,image_url,stock,featured,sizes"
+          )
+          .eq(
+            "brand",
+            normalized.brand
           )
           .neq(
             "id",
-            currentProduct.id
+            normalized.id
           )
           .order(
             "featured",
             {
-              ascending:
-                false,
+              ascending: false,
             }
           )
-          .order(
-            "created_at",
-            {
-              ascending:
-                false,
-            }
-          )
-          .limit(8);
+          .limit(4);
 
-      if (
-        currentProduct.brand
-      ) {
-        relatedQuery =
-          relatedQuery.eq(
-            "brand",
-            currentProduct.brand
-          );
-      }
-
-      const {
-        data:
-          relatedData,
-      } =
-        await relatedQuery;
-
-      if (
-        !cancelled &&
-        relatedData
-      ) {
-        setRelatedProducts(
-          relatedData
-            .map(
+        if (
+          !cancelled
+        ) {
+          setRelatedProducts(
+            (relatedData ??
+              []).map(
               normalizeProduct
             )
-            .slice(0, 4)
-        );
+          );
+        }
       }
-
-      setLoading(false);
     }
 
     loadProduct();
 
-    /* ===================================================
-       PRODUCT REALTIME
-    =================================================== */
-
-    const productChannel =
+    const channel =
       supabase
         .channel(
-          `product-detail-${productId}`
+          `product-page-${productId}`
         )
         .on(
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
-            table:
-              "products",
-            filter:
-              `id=eq.${productId}`,
+            schema: "public",
+            table: "products",
+            filter: `id=eq.${productId}`,
           },
           () => {
             loadProduct();
@@ -664,239 +440,231 @@ export default function ProductDetailPage() {
       cancelled = true;
 
       supabase.removeChannel(
-        productChannel
+        channel
       );
     };
-  }, [
-    productId,
-  ]);
+  }, [productId]);
 
   /* =======================================================
-     AUTO CLOSE MESSAGE
+     LOAD WISHLIST
   ======================================================= */
 
   useEffect(() => {
-    if (!actionMessage) {
+    const saved =
+      localStorage.getItem(
+        WISHLIST_KEY
+      );
+
+    if (!saved) {
+      return;
+    }
+
+    try {
+      const parsed =
+        JSON.parse(saved);
+
+      if (
+        Array.isArray(parsed)
+      ) {
+        setLiked(
+          parsed
+            .map(String)
+            .includes(
+              productId
+            )
+        );
+      }
+    } catch {
+      setLiked(false);
+    }
+  }, [productId]);
+
+  /* =======================================================
+     NOTICE
+  ======================================================= */
+
+  useEffect(() => {
+    if (!notice) {
       return;
     }
 
     const timer =
-      window.setTimeout(
-        () => {
-          setActionMessage(
-            null
-          );
-        },
-        2500
-      );
+      window.setTimeout(() => {
+        setNotice("");
+      }, 3200);
 
     return () =>
       window.clearTimeout(
         timer
       );
-  }, [
-    actionMessage,
-  ]);
+  }, [notice]);
 
   /* =======================================================
-     LOAD CART + WISHLIST
+     CART
   ======================================================= */
 
-  useEffect(() => {
-    function readCart() {
-      const saved =
-        localStorage.getItem(
-          "a_positive_cart"
-        );
-
-      if (!saved) {
-        setCartItems([]);
-        return;
-      }
-
-      try {
-        const parsed =
-          JSON.parse(
-            saved
-          );
-
-        if (
-          !Array.isArray(
-            parsed
-          )
-        ) {
-          setCartItems([]);
-          return;
-        }
-
-        const normalized =
-          parsed
-            .map(
-              (
-                item
-              ) =>
-                normalizeStoredCartItem(
-                  item
-                )
-            )
-            .filter(
-              (
-                item
-              ): item is CartItem =>
-                Boolean(item)
-            );
-
-        setCartItems(
-          normalized
-        );
-
-        /*
-         * Clean old invalid compact cart data.
-         * This prevents checkout from receiving:
-         * { productId, quantity }
-         */
-        if (
-          normalized.length !==
-          parsed.length
-        ) {
-          localStorage.setItem(
-            "a_positive_cart",
-            JSON.stringify(
-              normalized
-            )
-          );
-        }
-      } catch (err) {
-        console.error(
-          "CART READ ERROR:",
-          err
-        );
-
-        setCartItems([]);
-      }
+  const addToCart = async (
+    goToCheckout = false
+  ) => {
+    if (!product) {
+      return;
     }
 
-    function readWishlist() {
-      const saved =
-        localStorage.getItem(
-          "a_positive_wishlist"
-        );
+    if (
+      product.stock <= 0
+    ) {
+      setNotice(
+        "This product is currently sold out."
+      );
 
-      if (!saved) {
-        setWishlistIds([]);
-        return;
-      }
-
-      try {
-        const parsed =
-          JSON.parse(
-            saved
-          );
-
-        if (
-          Array.isArray(
-            parsed
-          )
-        ) {
-          setWishlistIds(
-            parsed.map(
-              (id) =>
-                String(id)
-            )
-          );
-        }
-      } catch {
-        setWishlistIds([]);
-      }
+      return;
     }
 
-    readCart();
-    readWishlist();
+    /* -----------------------------------------------
+       LOGIN REQUIRED
+    ------------------------------------------------ */
 
-    const cartListener =
-      () => {
-        readCart();
-      };
+   
 
-    const wishlistListener =
-      () => {
-        readWishlist();
-      };
+    /* -----------------------------------------------
+       SIZE REQUIRED
+    ------------------------------------------------ */
 
-    window.addEventListener(
-      "a_positive_cart_updated",
-      cartListener
-    );
-
-    window.addEventListener(
-      "a_positive_wishlist_updated",
-      wishlistListener
-    );
-
-    return () => {
-      window.removeEventListener(
-        "a_positive_cart_updated",
-        cartListener
+    if (
+      product.sizes.length >
+        0 &&
+      !selectedSize
+    ) {
+      setNotice(
+        "Please select a size first."
       );
 
-      window.removeEventListener(
-        "a_positive_wishlist_updated",
-        wishlistListener
-      );
-    };
-  }, []);
+      return;
+    }
 
-  /* =======================================================
-     DERIVED VALUES
-  ======================================================= */
+    setAdding(true);
 
-  const isWishlisted =
-    useMemo(() => {
-      if (!product) {
-        return false;
+    try {
+      const saved =
+        localStorage.getItem(
+          CART_KEY
+        );
+
+      let cart: CartItem[] =
+        [];
+
+      if (saved) {
+        try {
+          cart =
+            JSON.parse(saved)
+              .map(
+                normalizeStoredCartItem
+              )
+              .filter(
+                (
+                  item: any
+                ): item is CartItem =>
+                  Boolean(item)
+              );
+        } catch {
+          cart = [];
+        }
       }
 
-      return wishlistIds.includes(
-        product.id
-      );
-    }, [
-      wishlistIds,
-      product,
-    ]);
+      const size =
+        selectedSize || "";
 
-  const cartCount =
-    useMemo(
-      () =>
-        cartItems.reduce(
-          (
-            total,
-            item
-          ) =>
-            total +
-            Number(
-              item.quantity
+      const existingIndex =
+        cart.findIndex(
+          (item) =>
+            item.productId ===
+              product.id &&
+            item.size === size
+        );
+
+      let nextCart: CartItem[];
+
+      if (
+        existingIndex >=
+        0
+      ) {
+        nextCart =
+          cart.map(
+            (
+              item,
+              index
+            ) => {
+              if (
+                index !==
+                existingIndex
+              ) {
+                return item;
+              }
+
+              return productToCartItem(
+                product,
+                Math.min(
+                  Number(
+                    item.quantity
+                  ) +
+                    quantity,
+                  Math.max(
+                    product.stock,
+                    1
+                  )
+                ),
+                size
+              );
+            }
+          );
+      } else {
+        nextCart = [
+          ...cart,
+          productToCartItem(
+            product,
+            Math.min(
+              quantity,
+              Math.max(
+                product.stock,
+                1
+              )
             ),
+            size
+          ),
+        ];
+      }
+
+      localStorage.setItem(
+        CART_KEY,
+        JSON.stringify(
+          nextCart
+        )
+      );
+
+      window.dispatchEvent(
+        new Event(
+          "a_positive_cart_updated"
+        )
+      );
+
+      setNotice(
+        product.sizes.length >
           0
-        ),
-      [cartItems]
-    );
+          ? `${product.name} (${size}) added to your bag.`
+          : `${product.name} added to your bag.`
+      );
 
-  const brandColor =
-    getBrandColor(
-      product?.brand ??
-        null
-    );
-
-  const safeImage =
-    product?.image_url ||
-    "";
-
-  const maxQuantity =
-    product &&
-    product.stock >
-      0
-      ? product.stock
-      : 0;
+      if (
+        goToCheckout
+      ) {
+        router.push(
+          "/checkout"
+        );
+      }
+    } finally {
+      setAdding(false);
+    }
+  };
 
   /* =======================================================
      WISHLIST
@@ -907,28 +675,48 @@ export default function ProductDetailPage() {
       return;
     }
 
-    const id =
-      product.id;
+    const saved =
+      localStorage.getItem(
+        WISHLIST_KEY
+      );
+
+    let ids: string[] =
+      [];
+
+    if (saved) {
+      try {
+        const parsed =
+          JSON.parse(saved);
+
+        if (
+          Array.isArray(parsed)
+        ) {
+          ids =
+            parsed.map(
+              String
+            );
+        }
+      } catch {
+        ids = [];
+      }
+    }
 
     const next =
-      isWishlisted
-        ? wishlistIds.filter(
-            (
-              item
-            ) =>
-              item !== id
+      ids.includes(
+        product.id
+      )
+        ? ids.filter(
+            (id) =>
+              id !==
+              product.id
           )
         : [
-            ...wishlistIds,
-            id,
+            ...ids,
+            product.id,
           ];
 
-    setWishlistIds(
-      next
-    );
-
     localStorage.setItem(
-      "a_positive_wishlist",
+      WISHLIST_KEY,
       JSON.stringify(
         next
       )
@@ -939,250 +727,61 @@ export default function ProductDetailPage() {
         "a_positive_wishlist_updated"
       )
     );
-  }
 
-  /* =======================================================
-     SAVE FULL CART
-  ======================================================= */
-
-  function saveCart(
-    next: CartItem[]
-  ) {
-    setCartItems(
-      next
-    );
-
-    localStorage.setItem(
-      "a_positive_cart",
-      JSON.stringify(
-        next
-      )
-    );
-
-    window.dispatchEvent(
-      new Event(
-        "a_positive_cart_updated"
+    setLiked(
+      next.includes(
+        product.id
       )
     );
   }
 
   /* =======================================================
-     ADD TO CART
+     BRAND ROUTE
   ======================================================= */
 
-  function addToCart() {
-    if (
-      !product ||
-      product.stock <= 0
-    ) {
-      setActionMessage(
-        "This product is currently sold out."
-      );
-
-      return;
-    }
-
-    const safeQuantity =
-      Math.min(
-        Math.max(
-          quantity,
-          1
-        ),
-        product.stock
-      );
-
-    const existing =
-      cartItems.find(
-        (
-          item
-        ) =>
-          item.productId ===
-          product.id
-      );
-
-    let next: CartItem[];
-
-    if (existing) {
-      const nextQuantity =
-        Math.min(
-          Number(
-            existing.quantity
-          ) +
-            safeQuantity,
-          product.stock
-        );
-
-      next =
-        cartItems.map(
-          (
-            item
-          ) => {
-            if (
-              item.productId !==
-              product.id
-            ) {
-              return item;
-            }
-
-            return productToCartItem(
-              product,
-              nextQuantity
-            );
-          }
-        );
-    } else {
-      next = [
-        ...cartItems,
-        productToCartItem(
-          product,
-          safeQuantity
-        ),
-      ];
-    }
-
-    saveCart(
-      next
-    );
-
-    setAdded(
-      true
-    );
-
-    setActionMessage(
-      `${product.name} added to your bag.`
-    );
-
-    window.setTimeout(
-      () => {
-        setAdded(
-          false
-        );
-      },
-      2200
-    );
-  }
-
-  /* =======================================================
-     BUY NOW
-     
-     IMPORTANT:
-     Buy Now replaces the selected product quantity
-     with the quantity chosen on this page, then goes
-     directly to checkout.
-  ======================================================= */
-
-  function buyNow() {
-    if (
-      !product ||
-      product.stock <= 0
-    ) {
-      setActionMessage(
-        "This product is currently sold out."
-      );
-
-      return;
-    }
-
-    const safeQuantity =
-      Math.min(
-        Math.max(
-          quantity,
-          1
-        ),
-        product.stock
-      );
-
-    const existing =
-      cartItems.find(
-        (
-          item
-        ) =>
-          item.productId ===
-          product.id
-      );
-
-    let next: CartItem[];
-
-    if (existing) {
-      next =
-        cartItems.map(
-          (
-            item
-          ) =>
-            item.productId ===
-            product.id
-              ? productToCartItem(
-                  product,
-                  safeQuantity
-                )
-              : item
-        );
-    } else {
-      next = [
-        ...cartItems,
-        productToCartItem(
-          product,
-          safeQuantity
-        ),
-      ];
-    }
-
-    saveCart(
-      next
-    );
-
-    setBuying(
-      true
-    );
-
-    /*
-     * Give localStorage/state event a moment,
-     * then navigate.
-     */
-    window.setTimeout(
-      () => {
-        router.push(
-          "/checkout"
-        );
-      },
-      100
-    );
-  }
-
-  /* =======================================================
-     QUANTITY
-  ======================================================= */
-
-  function increaseQuantity() {
-    if (
-      !product ||
-      product.stock <= 0
-    ) {
-      return;
-    }
-
-    setQuantity(
-      (
-        current
-      ) =>
-        Math.min(
-          current + 1,
-          product.stock
+  const brandRoute =
+    useMemo(() => {
+      const brand =
+        String(
+          product?.brand ??
+            ""
         )
-    );
-  }
+          .toLowerCase()
+          .replace(
+            /\s+/g,
+            "-"
+          );
 
-  function decreaseQuantity() {
-    setQuantity(
-      (
-        current
-      ) =>
-        Math.max(
-          current - 1,
-          1
+      if (
+        brand.includes(
+          "blue-dream"
+        ) ||
+        brand ===
+          "blue-dream"
+      ) {
+        return "/brands/blue-dream";
+      }
+
+      if (
+        brand.includes(
+          "shopping-zone"
         )
-    );
-  }
+      ) {
+        return "/brands/shopping-zone-bd";
+      }
+
+      if (
+        brand.includes(
+          "a-positive"
+        ) ||
+        brand ===
+          "a-positive"
+      ) {
+        return "/brands/a-positive";
+      }
+
+      return "/";
+    }, [product]);
 
   /* =======================================================
      LOADING
@@ -1190,1353 +789,1289 @@ export default function ProductDetailPage() {
 
   if (loading) {
     return (
-      <main
-        style={{
-          minHeight:
-            "100vh",
-          background:
-            "#f8f7f3",
-          display:
-            "grid",
-          placeItems:
-            "center",
-          color:
-            "#11100e",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 10,
-            letterSpacing:
-              "0.22em",
-            textTransform:
-              "uppercase",
-            opacity: 0.5,
-          }}
-        >
-          LOADING PRODUCT...
+      <main className="product-page">
+        <div className="loading-screen">
+          <div className="loading-brand">
+            A-POSITIVE
+          </div>
+
+          <div className="loading-text">
+            LOADING PRODUCT
+          </div>
         </div>
+
+        <style jsx global>{`
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+          }
+
+          .product-page {
+            min-height: 100vh;
+            background: #f8f7f3;
+            color: #11100e;
+          }
+
+          .loading-screen {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .loading-brand {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.07em;
+          }
+
+          .loading-text {
+            margin-top: 10px;
+            font-size: 9px;
+            letter-spacing: 0.2em;
+            opacity: 0.45;
+          }
+        `}</style>
       </main>
     );
   }
 
   /* =======================================================
-     PRODUCT NOT FOUND
+     NOT FOUND
   ======================================================= */
 
   if (!product) {
     return (
-      <main
-        style={{
-          minHeight:
-            "100vh",
-          background:
-            "#f8f7f3",
-          display:
-            "grid",
-          placeItems:
-            "center",
-          padding: 24,
-          textAlign:
-            "center",
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontFamily:
-                "Georgia, serif",
-              fontStyle:
-                "italic",
-              fontSize:
-                "clamp(40px,7vw,72px)",
-              lineHeight: 1,
-            }}
-          >
-            Product not found.
+      <main className="product-page">
+        <div className="not-found">
+          <div className="not-found-small">
+            PRODUCT
           </div>
 
-          <p
-            style={{
-              marginTop:
-                14,
-              opacity:
-                0.52,
-              fontSize:
-                13,
-            }}
-          >
-            {error ||
-              "This product may no longer be available."}
-          </p>
+          <h1>
+            Product not found.
+          </h1>
 
-          <Link
-            href="/"
-            style={{
-              marginTop:
-                24,
-              display:
-                "inline-flex",
-              alignItems:
-                "center",
-              gap: 8,
-              background:
-                "#11100e",
-              color:
-                "#fff",
-              textDecoration:
-                "none",
-              padding:
-                "14px 20px",
-              fontSize: 10,
-              letterSpacing:
-                "0.16em",
-            }}
-          >
+          <Link href="/">
+            <ArrowLeft size={15} />
             BACK TO SHOP
-            <ArrowRight
-              size={14}
-            />
           </Link>
         </div>
+
+        <style jsx global>{`
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+          }
+
+          .product-page {
+            min-height: 100vh;
+            background: #f8f7f3;
+            color: #11100e;
+          }
+
+          .not-found {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 30px;
+          }
+
+          .not-found-small {
+            font-size: 9px;
+            letter-spacing: 0.22em;
+            opacity: 0.45;
+          }
+
+          .not-found h1 {
+            margin: 15px 0 22px;
+            font-family:
+              Georgia,
+              serif;
+            font-size: 52px;
+            font-style: italic;
+            font-weight: 400;
+          }
+
+          .not-found a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #11100e;
+            text-decoration: none;
+            font-size: 9px;
+            letter-spacing: 0.15em;
+          }
+        `}</style>
       </main>
     );
   }
 
-  /* =======================================================
-     MAIN
-  ======================================================= */
+  const soldOut =
+    product.stock <= 0;
 
   return (
-    <main
-      style={{
-        minHeight:
-          "100vh",
-        background:
-          "#f8f7f3",
-        color:
-          "#11100e",
-      }}
-    >
-      {/* ===================================================
-          NAVBAR
-      =================================================== */}
+    <main className="product-page">
 
-      <header
-        style={{
-          position:
-            "sticky",
-          top: 0,
-          zIndex: 50,
-          background:
-            "rgba(248,247,243,0.94)",
-          backdropFilter:
-            "blur(18px)",
-          borderBottom:
-            "1px solid rgba(17,16,14,0.08)",
-        }}
-      >
-        <div
-          style={{
-            maxWidth:
-              1440,
-            margin:
-              "0 auto",
-            padding:
-              "18px 24px",
-            display:
-              "flex",
-            justifyContent:
-              "space-between",
-            alignItems:
-              "center",
-            gap: 20,
-          }}
-        >
+      {/* =================================================
+          NAVBAR
+      ================================================= */}
+
+      <header className="product-nav">
+        <div className="nav-inner">
+
           <Link
             href="/"
-            style={{
-              color:
-                "#11100e",
-              textDecoration:
-                "none",
-              fontWeight:
-                800,
-              fontSize:
-                25,
-              letterSpacing:
-                "-0.07em",
-            }}
+            className="brand-logo"
           >
             A-POSITIVE
           </Link>
 
-          <nav
-            className="product-detail-nav"
-            style={{
-              display:
-                "flex",
-              gap: 25,
-            }}
-          >
+          <div className="nav-links">
             <Link href="/">
               HOME
             </Link>
 
-            <Link
-              href="/#product-explorer"
-            >
+            <Link href="/#product-explorer">
               SHOP
             </Link>
 
             <Link
-              href="/brands/a-positive"
+              href={brandRoute}
             >
-              A-POSITIVE
+              {product.brand ??
+                "COLLECTION"}
             </Link>
+          </div>
+
+          <div className="nav-actions">
 
             <Link
-              href="/brands/blue-dream"
+              href="/wishlist"
+              className="nav-circle"
+              aria-label="Wishlist"
             >
-              BLUE DREAM
-            </Link>
-
-            <Link
-              href="/brands/shopping-zone-bd"
-            >
-              SHOPPING ZONE BD
-            </Link>
-          </nav>
-
-          <Link
-            href="/cart"
-            style={{
-              position:
-                "relative",
-              width: 38,
-              height: 38,
-              borderRadius:
-                "50%",
-              border:
-                "1px solid rgba(17,16,14,.1)",
-              display:
-                "grid",
-              placeItems:
-                "center",
-              color:
-                "#11100e",
-            }}
-          >
-            <ShoppingBag
-              size={17}
-            />
-
-            {cartCount >
-              0 && (
-              <span
-                style={{
-                  position:
-                    "absolute",
-                  top: -3,
-                  right: -2,
-                  width: 15,
-                  height: 15,
-                  borderRadius:
-                    "50%",
-                  background:
-                    brandColor,
-                  color:
-                    "#fff",
-                  display:
-                    "grid",
-                  placeItems:
-                    "center",
-                  fontSize:
-                    8,
-                }}
-              >
-                {
-                  cartCount
+              <Heart
+                size={17}
+                fill={
+                  liked
+                    ? "#11100e"
+                    : "transparent"
                 }
-              </span>
-            )}
-          </Link>
+              />
+            </Link>
+
+            <Link
+              href="/cart"
+              className="nav-circle"
+              aria-label="Cart"
+            >
+              <ShoppingBag
+                size={17}
+              />
+            </Link>
+
+          </div>
         </div>
       </header>
 
-      {/* ===================================================
-          NOTICE
-      =================================================== */}
-
-      {actionMessage && (
-        <div
-          style={{
-            position:
-              "fixed",
-            top: 82,
-            right: 18,
-            zIndex:
-              1000,
-            width:
-              "min(380px, calc(100vw - 36px))",
-            padding:
-              "15px 17px",
-            background:
-              "#11100e",
-            color:
-              "#fff",
-            boxShadow:
-              "0 20px 45px rgba(0,0,0,.18)",
-          }}
-        >
-          <div
-            style={{
-              display:
-                "flex",
-              alignItems:
-                "center",
-              gap: 10,
-            }}
-          >
-            <Check
-              size={16}
-            />
-
-            <span
-              style={{
-                fontSize:
-                  12,
-                lineHeight:
-                  1.5,
-                opacity:
-                  0.86,
-              }}
-            >
-              {
-                actionMessage
-              }
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ===================================================
+      {/* =================================================
           BREADCRUMB
-      =================================================== */}
+      ================================================= */}
 
-      <div
-        style={{
-          maxWidth:
-            1440,
-          margin:
-            "0 auto",
-          padding:
-            "22px 24px 0",
-        }}
-      >
-        <Link
-          href={
-            getBrandRoute(
-              product.brand
-            )
-          }
-          style={{
-            display:
-              "inline-flex",
-            alignItems:
-              "center",
-            gap: 8,
-            color:
-              "#11100e",
-            textDecoration:
-              "none",
-            fontSize: 10,
-            letterSpacing:
-              "0.14em",
-            textTransform:
-              "uppercase",
-            opacity: 0.52,
-          }}
-        >
-          <ArrowLeft
-            size={13}
-          />
-          BACK TO COLLECTION
+      <div className="breadcrumb-shell">
+        <Link href="/">
+          HOME
         </Link>
+
+        <span>/</span>
+
+        <Link href={brandRoute}>
+          {product.brand ??
+            "COLLECTION"}
+        </Link>
+
+        <span>/</span>
+
+        <span>
+          {product.name}
+        </span>
       </div>
 
-      {/* ===================================================
-          PRODUCT SECTION
-      =================================================== */}
+      {/* =================================================
+          PRODUCT
+      ================================================= */}
 
-      <section
-        style={{
-          maxWidth:
-            1440,
-          margin:
-            "0 auto",
-          padding:
-            "35px 24px 100px",
-        }}
-      >
-        <div
-          className="product-detail-layout"
-          style={{
-            display:
-              "grid",
-            gridTemplateColumns:
-              "minmax(0,1.08fr) minmax(360px,.92fr)",
-            gap: 65,
-            alignItems:
-              "start",
-          }}
-        >
-          {/* IMAGE */}
+      <section className="product-section">
 
-          <div
-            style={{
-              position:
-                "relative",
-              background:
-                "#ebe9e2",
-            }}
-          >
-            {safeImage ? (
+        <div className="product-image-column">
+
+          <div className="main-image">
+            {product.image_url ? (
               <img
                 src={
-                  safeImage
+                  product.image_url
                 }
                 alt={
                   product.name
                 }
-                style={{
-                  width:
-                    "100%",
-                  display:
-                    "block",
-                  aspectRatio:
-                    "0.86",
-                  objectFit:
-                    "cover",
-                }}
               />
             ) : (
-              <div
-                style={{
-                  aspectRatio:
-                    "0.86",
-                  display:
-                    "grid",
-                  placeItems:
-                    "center",
-                  background:
-                    "#ebe9e2",
-                  opacity:
-                    0.5,
-                  fontSize: 11,
-                  letterSpacing:
-                    "0.16em",
-                }}
-              >
+              <div className="image-placeholder">
                 NO IMAGE
               </div>
             )}
 
-            {product.stock <=
-              3 &&
-              product.stock >
-                0 && (
-                <span
-                  style={{
-                    position:
-                      "absolute",
-                    top: 16,
-                    left: 16,
-                    background:
-                      "#fff",
-                    padding:
-                      "8px 10px",
-                    fontSize: 8,
-                    letterSpacing:
-                      "0.16em",
-                  }}
-                >
+            {soldOut && (
+              <span className="sold-out-badge">
+                SOLD OUT
+              </span>
+            )}
+
+            {!soldOut &&
+              product.stock <=
+                3 && (
+                <span className="low-stock-badge">
                   LOW STOCK
                 </span>
               )}
 
-            {product.stock <=
-              0 && (
-              <span
-                style={{
-                  position:
-                    "absolute",
-                  top: 16,
-                  left: 16,
-                  background:
-                    brandColor,
-                  color:
-                    "#fff",
-                  padding:
-                    "8px 10px",
-                  fontSize: 8,
-                  letterSpacing:
-                    "0.16em",
-                }}
-              >
-                SOLD OUT
-              </span>
-            )}
+            {product.featured &&
+              !soldOut && (
+                <span className="featured-badge">
+                  FEATURED
+                </span>
+              )}
           </div>
 
-          {/* INFO */}
+        </div>
 
-          <div
-            style={{
-              paddingTop: 8,
-            }}
-          >
-            <Link
-              href={getBrandRoute(
-                product.brand
+        <div className="product-info-column">
+
+          <div className="product-brand">
+            {product.brand ??
+              "A-POSITIVE"}
+          </div>
+
+          <div className="product-category">
+            {product.category ??
+              "FASHION"}
+          </div>
+
+          <h1>
+            {product.name}
+          </h1>
+
+          <div className="price-row">
+
+            <strong>
+              {money(
+                product.price
               )}
-              style={{
-                fontSize: 9,
-                letterSpacing:
-                  "0.22em",
-                textTransform:
-                  "uppercase",
-                textDecoration:
-                  "none",
-                color:
-                  brandColor,
-              }}
-            >
-              {product.brand ||
-                "A-POSITIVE"}
-            </Link>
+            </strong>
 
-            <div
-              style={{
-                marginTop:
-                  12,
-                fontSize: 9,
-                letterSpacing:
-                  "0.18em",
-                textTransform:
-                  "uppercase",
-                opacity:
-                  0.42,
-              }}
-            >
-              {product.category ||
-                "FASHION"}
-            </div>
-
-            <h1
-              style={{
-                margin:
-                  "17px 0 0",
-                fontFamily:
-                  "Georgia, serif",
-                fontStyle:
-                  "italic",
-                fontWeight:
-                  400,
-                fontSize:
-                  "clamp(44px,6vw,76px)",
-                lineHeight:
-                  0.94,
-                letterSpacing:
-                  "-0.045em",
-              }}
-            >
-              {
-                product.name
-              }
-            </h1>
-
-            {/* PRICE */}
-
-            <div
-              style={{
-                marginTop:
-                  27,
-                display:
-                  "flex",
-                alignItems:
-                  "baseline",
-                gap: 12,
-              }}
-            >
-              <strong
-                style={{
-                  fontSize:
-                    22,
-                  fontWeight:
-                    600,
-                }}
-              >
-                {money(
-                  product.price
-                )}
-              </strong>
-
-              {product.old_price !==
-                null &&
-                product.old_price >
-                  product.price && (
-                  <del
-                    style={{
-                      fontSize:
-                        13,
-                      opacity:
-                        0.4,
-                    }}
-                  >
-                    {money(
-                      product.old_price
-                    )}
-                  </del>
-                )}
-            </div>
-
-            {/* STOCK */}
-
-            <div
-              style={{
-                marginTop:
-                  23,
-                padding:
-                  "14px 15px",
-                background:
-                  product.stock >
-                  0
-                    ? "rgba(17,16,14,.035)"
-                    : "rgba(142,16,29,.07)",
-                border:
-                  "1px solid rgba(17,16,14,.08)",
-                fontSize:
-                  11,
-                lineHeight:
-                  1.6,
-              }}
-            >
-              {product.stock >
-              0 ? (
-                <span
-                  style={{
-                    display:
-                      "inline-flex",
-                    alignItems:
-                      "center",
-                    gap: 7,
-                  }}
-                >
-                  <Check
-                    size={14}
-                  />
-
-                  {product.stock <=
-                  3
-                    ? `Only ${product.stock} left in stock`
-                    : "Available in stock"}
-                </span>
-              ) : (
-                <span>
-                  This product is
-                  currently out of
-                  stock.
-                </span>
-              )}
-            </div>
-
-            {/* ABOUT */}
-
-            <div
-              style={{
-                marginTop:
-                  30,
-                paddingTop:
-                  24,
-                borderTop:
-                  "1px solid rgba(17,16,14,.09)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize:
-                    10,
-                  letterSpacing:
-                    "0.18em",
-                  textTransform:
-                    "uppercase",
-                  opacity:
-                    0.44,
-                  marginBottom:
-                    11,
-                }}
-              >
-                ABOUT THIS PIECE
-              </div>
-
-              <p
-                style={{
-                  maxWidth:
-                    560,
-                  fontSize:
-                    14,
-                  lineHeight:
-                    1.9,
-                  opacity:
-                    0.62,
-                  margin: 0,
-                }}
-              >
-                {product.name} is
-                part of the{" "}
-                {product.brand ||
-                  "A-POSITIVE"}{" "}
-                collection, designed
-                with a modern focus on
-                everyday style, fit and
-                detail.
-              </p>
-            </div>
-
-            {/* ACTIONS */}
-
-            <div
-              style={{
-                marginTop:
-                  32,
-              }}
-            >
-              <div
-                style={{
-                  display:
-                    "flex",
-                  gap: 10,
-                  flexWrap:
-                    "wrap",
-                }}
-              >
-                {/* QUANTITY */}
-
-                <div
-                  style={{
-                    display:
-                      "flex",
-                    alignItems:
-                      "center",
-                    border:
-                      "1px solid rgba(17,16,14,.16)",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={
-                      decreaseQuantity
-                    }
-                    disabled={
-                      product.stock <=
-                        0 ||
-                      quantity <=
-                        1
-                    }
-                    style={{
-                      width: 43,
-                      height: 48,
-                      border: 0,
-                      background:
-                        "transparent",
-                      cursor:
-                        product.stock >
-                          0 &&
-                        quantity >
-                          1
-                          ? "pointer"
-                          : "not-allowed",
-                      opacity:
-                        product.stock >
-                          0 &&
-                        quantity >
-                          1
-                          ? 1
-                          : 0.35,
-                      display:
-                        "grid",
-                      placeItems:
-                        "center",
-                    }}
-                  >
-                    <Minus
-                      size={14}
-                    />
-                  </button>
-
-                  <span
-                    style={{
-                      minWidth:
-                        40,
-                      textAlign:
-                        "center",
-                      fontSize:
-                        13,
-                    }}
-                  >
-                    {
-                      quantity
-                    }
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={
-                      increaseQuantity
-                    }
-                    disabled={
-                      product.stock <=
-                        0 ||
-                      quantity >=
-                        maxQuantity
-                    }
-                    style={{
-                      width: 43,
-                      height: 48,
-                      border: 0,
-                      background:
-                        "transparent",
-                      cursor:
-                        product.stock >
-                          0 &&
-                        quantity <
-                          maxQuantity
-                          ? "pointer"
-                          : "not-allowed",
-                      opacity:
-                        product.stock >
-                          0 &&
-                        quantity <
-                          maxQuantity
-                          ? 1
-                          : 0.35,
-                      display:
-                        "grid",
-                      placeItems:
-                        "center",
-                    }}
-                  >
-                    <Plus
-                      size={14}
-                    />
-                  </button>
-                </div>
-
-                {/* ADD TO CART */}
-
-                <button
-                  type="button"
-                  onClick={
-                    addToCart
-                  }
-                  disabled={
-                    product.stock <=
-                    0
-                  }
-                  style={{
-                    flex: 1,
-                    minWidth:
-                      180,
-                    border: 0,
-                    background:
-                      added
-                        ? "#2d5b35"
-                        : brandColor,
-                    color:
-                      "#fff",
-                    padding:
-                      "0 20px",
-                    minHeight:
-                      48,
-                    cursor:
-                      product.stock >
-                      0
-                        ? "pointer"
-                        : "not-allowed",
-                    display:
-                      "inline-flex",
-                    alignItems:
-                      "center",
-                    justifyContent:
-                      "center",
-                    gap: 9,
-                    fontSize:
-                      10,
-                    letterSpacing:
-                      "0.16em",
-                  }}
-                >
-                  {added ? (
-                    <>
-                      <Check
-                        size={15}
-                      />
-                      ADDED TO CART
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingBag
-                        size={15}
-                      />
-                      ADD TO CART
-                    </>
+            {product.old_price !==
+              null &&
+              product.old_price >
+                product.price && (
+                <del>
+                  {money(
+                    product.old_price
                   )}
-                </button>
+                </del>
+              )}
 
-                {/* WISHLIST */}
+          </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    toggleWishlist
-                  }
-                  style={{
-                    width: 50,
-                    minHeight:
-                      48,
-                    border:
-                      `1px solid ${brandColor}`,
-                    background:
-                      isWishlisted
-                        ? brandColor
-                        : "transparent",
-                    color:
-                      isWishlisted
-                        ? "#fff"
-                        : brandColor,
-                    cursor:
-                      "pointer",
-                    display:
-                      "grid",
-                    placeItems:
-                      "center",
-                  }}
-                  aria-label="Wishlist"
-                >
-                  <Heart
-                    size={17}
-                    fill={
-                      isWishlisted
-                        ? "currentColor"
-                        : "none"
-                    }
-                  />
-                </button>
+          <div className="divider" />
+
+          {/* =================================================
+              SIZE SELECTOR
+          ================================================= */}
+
+          {product.sizes.length >
+            0 && (
+            <div className="size-section">
+
+              <div className="section-label">
+                SELECT SIZE
               </div>
 
-              {/* BUY NOW */}
+              <div className="size-grid">
+                {product.sizes.map(
+                  (size) => (
+                    <button
+                      type="button"
+                      key={
+                        size
+                      }
+                      className={
+                        selectedSize ===
+                        size
+                          ? "size-button active"
+                          : "size-button"
+                      }
+                      onClick={() =>
+                        setSelectedSize(
+                          size
+                        )
+                      }
+                    >
+                      {size}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <div className="size-help">
+                Select your preferred size
+                before adding the product
+                to your bag.
+              </div>
+
+            </div>
+          )}
+
+          {/* =================================================
+              QUANTITY
+          ================================================= */}
+
+          <div className="quantity-section">
+
+            <div className="section-label">
+              QUANTITY
+            </div>
+
+            <div className="quantity-control">
 
               <button
                 type="button"
-                onClick={
-                  buyNow
+                onClick={() =>
+                  setQuantity(
+                    Math.max(
+                      1,
+                      quantity -
+                        1
+                    )
+                  )
                 }
                 disabled={
-                  product.stock <=
-                    0 ||
-                  buying
+                  soldOut ||
+                  quantity <=
+                    1
                 }
-                style={{
-                  width:
-                    "100%",
-                  marginTop:
-                    10,
-                  minHeight:
-                    52,
-                  border: 0,
-                  background:
-                    "#11100e",
-                  color:
-                    "#fff",
-                  cursor:
-                    product.stock >
-                      0 &&
-                    !buying
-                      ? "pointer"
-                      : "not-allowed",
-                  display:
-                    "flex",
-                  alignItems:
-                    "center",
-                  justifyContent:
-                    "center",
-                  gap: 9,
-                  fontSize:
-                    10,
-                  letterSpacing:
-                    "0.18em",
-                }}
               >
-                <Sparkles
-                  size={15}
-                />
-
-                {buying
-                  ? "OPENING CHECKOUT..."
-                  : "BUY NOW"}
+                <Minus size={14} />
               </button>
+
+              <span>
+                {quantity}
+              </span>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setQuantity(
+                    Math.min(
+                      Math.max(
+                        product.stock,
+                        1
+                      ),
+                      quantity +
+                        1
+                    )
+                  )
+                }
+                disabled={
+                  soldOut ||
+                  quantity >=
+                    Math.max(
+                      product.stock,
+                      1
+                    )
+                }
+              >
+                <Plus size={14} />
+              </button>
+
             </div>
 
-            {/* SHIPPING */}
-
-            <div
-              style={{
-                marginTop:
-                  30,
-                display:
-                  "grid",
-                gridTemplateColumns:
-                  "repeat(2,minmax(0,1fr))",
-                gap: 10,
-              }}
-            >
-              <div
-                style={{
-                  padding:
-                    "16px",
-                  border:
-                    "1px solid rgba(17,16,14,.09)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize:
-                      9,
-                    letterSpacing:
-                      "0.15em",
-                    textTransform:
-                      "uppercase",
-                    opacity:
-                      0.43,
-                  }}
-                >
-                  DELIVERY
-                </div>
-
-                <div
-                  style={{
-                    marginTop:
-                      8,
-                    fontSize:
-                      12,
-                    lineHeight:
-                      1.5,
-                  }}
-                >
-                  Selected orders may
-                  qualify for free delivery.
-                </div>
-              </div>
-
-              <div
-                style={{
-                  padding:
-                    "16px",
-                  border:
-                    "1px solid rgba(17,16,14,.09)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize:
-                      9,
-                    letterSpacing:
-                      "0.15em",
-                    textTransform:
-                      "uppercase",
-                    opacity:
-                      0.43,
-                  }}
-                >
-                  PAYMENT
-                </div>
-
-                <div
-                  style={{
-                    marginTop:
-                      8,
-                    fontSize:
-                      12,
-                    lineHeight:
-                      1.5,
-                  }}
-                >
-                  Cash on delivery
-                  and available
-                  online payment
-                  options.
-                </div>
-              </div>
-            </div>
           </div>
+
+          {/* =================================================
+              ACTIONS
+          ================================================= */}
+
+          <div className="action-buttons">
+
+            <button
+              type="button"
+              className="add-button"
+              disabled={
+                soldOut ||
+                adding
+              }
+              onClick={() =>
+                addToCart(false)
+              }
+            >
+              <ShoppingBag
+                size={16}
+              />
+
+              {adding
+                ? "ADDING..."
+                : soldOut
+                ? "SOLD OUT"
+                : product.sizes.length >
+                  0 &&
+                  !selectedSize
+                ? "SELECT SIZE"
+                : "ADD TO BAG"}
+            </button>
+
+            <button
+              type="button"
+              className="buy-button"
+              disabled={
+                soldOut ||
+                adding
+              }
+              onClick={() =>
+                addToCart(true)
+              }
+            >
+              BUY NOW
+              <ArrowRight
+                size={15}
+              />
+            </button>
+
+          </div>
+
+          {/* =================================================
+              WISHLIST
+          ================================================= */}
+
+          <button
+            type="button"
+            className={
+              liked
+                ? "wishlist-button liked"
+                : "wishlist-button"
+            }
+            onClick={
+              toggleWishlist
+            }
+          >
+            <Heart
+              size={15}
+              fill={
+                liked
+                  ? "#11100e"
+                  : "transparent"
+              }
+            />
+
+            {liked
+              ? "REMOVE FROM WISHLIST"
+              : "ADD TO WISHLIST"}
+          </button>
+
+          {/* =================================================
+              INFO
+          ================================================= */}
+
+          <div className="info-box">
+
+            <div className="info-row">
+              <div>
+                DELIVERY
+              </div>
+
+              <span>
+                Delivery available
+                across Bangladesh.
+              </span>
+            </div>
+
+            <div className="info-row">
+              <div>
+                PAYMENT
+              </div>
+
+              <span>
+                Cash on delivery
+                available.
+              </span>
+            </div>
+
+            <div className="info-row">
+              <div>
+                STOCK
+              </div>
+
+              <span>
+                {soldOut
+                  ? "Currently unavailable"
+                  : `${product.stock} available`}
+              </span>
+            </div>
+
+          </div>
+
         </div>
+
       </section>
 
-      {/* ===================================================
+      {/* =================================================
           RELATED PRODUCTS
-      =================================================== */}
+      ================================================= */}
 
       {relatedProducts.length >
         0 && (
-        <section
-          style={{
-            borderTop:
-              "1px solid rgba(17,16,14,.08)",
-            background:
-              "#efede7",
-          }}
-        >
-          <div
-            style={{
-              maxWidth:
-                1440,
-              margin:
-                "0 auto",
-              padding:
-                "85px 24px 100px",
-            }}
-          >
-            <div
-              style={{
-                display:
-                  "flex",
-                justifyContent:
-                  "space-between",
-                alignItems:
-                  "flex-end",
-                gap: 20,
-                marginBottom:
-                  28,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize:
-                      10,
-                    letterSpacing:
-                      "0.25em",
-                    textTransform:
-                      "uppercase",
-                    opacity:
-                      0.45,
-                    marginBottom:
-                      10,
-                  }}
-                >
-                  YOU MAY ALSO LIKE
-                </div>
+        <section className="related-section">
 
-                <h2
-                  style={{
-                    margin:
-                      0,
-                    fontFamily:
-                      "Georgia, serif",
-                    fontStyle:
-                      "italic",
-                    fontWeight:
-                      400,
-                    fontSize:
-                      "clamp(38px,5vw,62px)",
-                    lineHeight:
-                      0.96,
-                  }}
-                >
-                  More from{" "}
-                  {product.brand ||
-                    "this collection"}
-                  .
-                </h2>
+          <div className="related-header">
+            <div>
+              <div className="related-small">
+                MORE FROM{" "}
+                {product.brand ??
+                  "THIS COLLECTION"}
               </div>
 
-              <Link
-                href={getBrandRoute(
-                  product.brand
-                )}
-                style={{
-                  display:
-                    "inline-flex",
-                  alignItems:
-                    "center",
-                  gap: 7,
-                  color:
-                    "#11100e",
-                  textDecoration:
-                    "none",
-                  fontSize:
-                    10,
-                  letterSpacing:
-                    "0.14em",
-                }}
-              >
-                VIEW BRAND
-                <ArrowRight
-                  size={13}
-                />
-              </Link>
+              <h2>
+                You may also like.
+              </h2>
             </div>
 
-            <div
-              className="related-grid"
-              style={{
-                display:
-                  "grid",
-                gridTemplateColumns:
-                  "repeat(4,minmax(0,1fr))",
-                gap: 18,
-              }}
+            <Link
+              href={brandRoute}
             >
-              {relatedProducts.map(
-                (
-                  item
-                ) => (
-                  <article
-                    key={
-                      item.id
-                    }
-                  >
-                    <Link
-                      href={`/products/${item.id}`}
-                      style={{
-                        display:
-                          "block",
-                        aspectRatio:
-                          "0.8",
-                        background:
-                          "#e8e5df",
-                      }}
-                    >
-                      <img
-                        src={
-                          item.image_url ||
-                          ""
-                        }
-                        alt={
-                          item.name
-                        }
-                        style={{
-                          width:
-                            "100%",
-                          height:
-                            "100%",
-                          objectFit:
-                            "cover",
-                          display:
-                            "block",
-                        }}
-                      />
-                    </Link>
-
-                    <div
-                      style={{
-                        paddingTop:
-                          14,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize:
-                            9,
-                          letterSpacing:
-                            "0.16em",
-                          textTransform:
-                            "uppercase",
-                          opacity:
-                            0.42,
-                          marginBottom:
-                            6,
-                        }}
-                      >
-                        {item.category ||
-                          "FASHION"}
-                      </div>
-
-                      <Link
-                        href={`/products/${item.id}`}
-                        style={{
-                          textDecoration:
-                            "none",
-                          color:
-                            "#11100e",
-                          fontSize:
-                            14,
-                        }}
-                      >
-                        {
-                          item.name
-                        }
-                      </Link>
-
-                      <div
-                        style={{
-                          marginTop:
-                            7,
-                          fontSize:
-                            13,
-                        }}
-                      >
-                        {money(
-                          item.price
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                )
-              )}
-            </div>
+              VIEW COLLECTION
+              <ArrowRight
+                size={14}
+              />
+            </Link>
           </div>
+
+          <div className="related-grid">
+
+            {relatedProducts.map(
+              (
+                item
+              ) => (
+                <Link
+                  href={`/products/${item.id}`}
+                  key={
+                    item.id
+                  }
+                  className="related-card"
+                >
+                  <div className="related-image">
+                    <img
+                      src={
+                        item.image_url ??
+                        ""
+                      }
+                      alt={
+                        item.name
+                      }
+                    />
+
+                    {item.stock <=
+                      0 && (
+                      <span>
+                        SOLD OUT
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="related-info">
+                    <div className="related-category">
+                      {
+                        item.category
+                      }
+                    </div>
+
+                    <div className="related-name">
+                      {
+                        item.name
+                      }
+                    </div>
+
+                    <div className="related-price">
+                      {money(
+                        item.price
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              )
+            )}
+
+          </div>
+
         </section>
       )}
 
-      {/* ===================================================
-          RESPONSIVE
-      =================================================== */}
+      {/* =================================================
+          NOTICE
+      ================================================= */}
+
+      {notice && (
+        <div className="product-notice">
+          <div className="notice-title">
+            BAG UPDATE
+          </div>
+
+          <div>
+            {notice}
+          </div>
+        </div>
+      )}
+
+      {/* =================================================
+          STYLES
+      ================================================= */}
 
       <style jsx global>{`
-        .product-detail-nav a {
-          color: #11100e;
-          text-decoration: none;
-          font-size: 10px;
-          letter-spacing: 0.14em;
-          opacity: 0.62;
+        * {
+          box-sizing: border-box;
         }
 
-        .product-detail-nav a:hover {
+        html {
+          scroll-behavior: smooth;
+        }
+
+        body {
+          margin: 0;
+        }
+
+        .product-page {
+          min-height: 100vh;
+          background: #f8f7f3;
+          color: #11100e;
+        }
+
+        .product-nav {
+          position: sticky;
+          top: 0;
+          z-index: 50;
+          background: rgba(
+            248,
+            247,
+            243,
+            0.94
+          );
+          backdrop-filter: blur(18px);
+          border-bottom: 1px solid
+            rgba(17, 16, 14, 0.08);
+        }
+
+        .nav-inner {
+          max-width: 1440px;
+          margin: 0 auto;
+          padding: 17px 24px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 20px;
+        }
+
+        .brand-logo {
+          color: #11100e;
+          text-decoration: none;
+          font-size: 24px;
+          font-weight: 800;
+          letter-spacing: -0.07em;
+        }
+
+        .nav-links {
+          display: flex;
+          align-items: center;
+          gap: 25px;
+        }
+
+        .nav-links a {
+          color: #11100e;
+          text-decoration: none;
+          font-size: 9px;
+          letter-spacing: 0.15em;
+          opacity: 0.56;
+        }
+
+        .nav-links a:hover {
           opacity: 1;
         }
 
-        @media (max-width: 950px) {
-          .product-detail-nav {
-            display: none !important;
+        .nav-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .nav-circle {
+          width: 38px;
+          height: 38px;
+          border-radius: 50%;
+          border: 1px solid
+            rgba(17, 16, 14, 0.09);
+          display: grid;
+          place-items: center;
+          color: #11100e;
+          text-decoration: none;
+        }
+
+        .breadcrumb-shell {
+          max-width: 1440px;
+          margin: 0 auto;
+          padding: 25px 24px 0;
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          font-size: 9px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          opacity: 0.45;
+        }
+
+        .breadcrumb-shell a {
+          color: #11100e;
+          text-decoration: none;
+        }
+
+        .product-section {
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 42px 24px 100px;
+          display: grid;
+          grid-template-columns: minmax(0, 1.05fr) minmax(
+              420px,
+              0.8fr
+            );
+          gap: 80px;
+          align-items: start;
+        }
+
+        .main-image {
+          position: relative;
+          overflow: hidden;
+          background: #ebe9e2;
+          aspect-ratio: 0.82;
+        }
+
+        .main-image img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+
+        .image-placeholder {
+          width: 100%;
+          height: 100%;
+          display: grid;
+          place-items: center;
+          font-size: 9px;
+          letter-spacing: 0.15em;
+          opacity: 0.4;
+        }
+
+        .sold-out-badge,
+        .low-stock-badge,
+        .featured-badge {
+          position: absolute;
+          top: 14px;
+          left: 14px;
+          padding: 8px 10px;
+          font-size: 8px;
+          letter-spacing: 0.14em;
+        }
+
+        .sold-out-badge {
+          background: #11100e;
+          color: #fff;
+        }
+
+        .low-stock-badge,
+        .featured-badge {
+          background: #fff;
+          color: #11100e;
+        }
+
+        .product-brand {
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+          opacity: 0.42;
+        }
+
+        .product-category {
+          margin-top: 7px;
+          font-size: 9px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          opacity: 0.42;
+        }
+
+        .product-info-column h1 {
+          max-width: 650px;
+          margin: 18px 0 0;
+          font-family:
+            Georgia,
+            "Times New Roman",
+            serif;
+          font-size: clamp(
+            46px,
+            6vw,
+            78px
+          );
+          line-height: 0.93;
+          font-style: italic;
+          font-weight: 400;
+          letter-spacing: -0.05em;
+        }
+
+        .price-row {
+          margin-top: 24px;
+          display: flex;
+          align-items: baseline;
+          gap: 12px;
+        }
+
+        .price-row strong {
+          font-size: 20px;
+          font-weight: 600;
+        }
+
+        .price-row del {
+          font-size: 12px;
+          opacity: 0.4;
+        }
+
+        .divider {
+          width: 100%;
+          height: 1px;
+          margin: 30px 0;
+          background: rgba(
+            17,
+            16,
+            14,
+            0.1
+          );
+        }
+
+        .section-label {
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.16em;
+          opacity: 0.48;
+        }
+
+        .size-grid {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .size-button {
+          min-width: 54px;
+          min-height: 42px;
+          padding: 0 12px;
+          border: 1px solid
+            rgba(17, 16, 14, 0.14);
+          background: #fff;
+          color: #11100e;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 700;
+          transition:
+            background 0.2s ease,
+            color 0.2s ease,
+            transform 0.2s ease;
+        }
+
+        .size-button:hover {
+          transform: translateY(-1px);
+        }
+
+        .size-button.active {
+          background: #11100e;
+          color: #fff;
+          border-color: #11100e;
+        }
+
+        .size-help {
+          margin-top: 10px;
+          font-size: 10px;
+          line-height: 1.6;
+          opacity: 0.45;
+        }
+
+        .quantity-section {
+          margin-top: 26px;
+        }
+
+        .quantity-control {
+          width: 132px;
+          min-height: 43px;
+          margin-top: 11px;
+          display: grid;
+          grid-template-columns: 40px 1fr 40px;
+          border: 1px solid
+            rgba(17, 16, 14, 0.12);
+          background: #fff;
+        }
+
+        .quantity-control button {
+          border: 0;
+          background: transparent;
+          color: #11100e;
+          cursor: pointer;
+          display: grid;
+          place-items: center;
+        }
+
+        .quantity-control button:disabled {
+          opacity: 0.25;
+          cursor: not-allowed;
+        }
+
+        .quantity-control span {
+          display: grid;
+          place-items: center;
+          font-size: 12px;
+          border-left: 1px solid
+            rgba(17, 16, 14, 0.08);
+          border-right: 1px solid
+            rgba(17, 16, 14, 0.08);
+        }
+
+        .action-buttons {
+          margin-top: 26px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 9px;
+        }
+
+        .add-button,
+        .buy-button {
+          min-height: 52px;
+          display: inline-flex;
+          justify-content: center;
+          align-items: center;
+          gap: 8px;
+          border: 0;
+          cursor: pointer;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.13em;
+        }
+
+        .add-button {
+          background: #11100e;
+          color: #fff;
+        }
+
+        .buy-button {
+          border: 1px solid #11100e;
+          background: transparent;
+          color: #11100e;
+        }
+
+        .add-button:disabled,
+        .buy-button:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        .wishlist-button {
+          width: 100%;
+          min-height: 46px;
+          margin-top: 10px;
+          display: inline-flex;
+          justify-content: center;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid
+            rgba(17, 16, 14, 0.12);
+          background: #fff;
+          color: #11100e;
+          cursor: pointer;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+        }
+
+        .wishlist-button.liked {
+          background: #ebe9e2;
+        }
+
+        .info-box {
+          margin-top: 27px;
+          border-top: 1px solid
+            rgba(17, 16, 14, 0.1);
+        }
+
+        .info-row {
+          padding: 15px 0;
+          display: grid;
+          grid-template-columns: 105px 1fr;
+          gap: 15px;
+          border-bottom: 1px solid
+            rgba(17, 16, 14, 0.08);
+        }
+
+        .info-row div {
+          font-size: 8px;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          opacity: 0.45;
+        }
+
+        .info-row span {
+          font-size: 11px;
+          line-height: 1.6;
+          opacity: 0.58;
+        }
+
+        .related-section {
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 0 24px 110px;
+        }
+
+        .related-header {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 20px;
+          margin-bottom: 28px;
+        }
+
+        .related-small {
+          font-size: 9px;
+          letter-spacing: 0.18em;
+          opacity: 0.42;
+        }
+
+        .related-header h2 {
+          margin: 9px 0 0;
+          font-family:
+            Georgia,
+            serif;
+          font-size: 48px;
+          line-height: 0.95;
+          font-style: italic;
+          font-weight: 400;
+          letter-spacing: -0.04em;
+        }
+
+        .related-header a {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          color: #11100e;
+          text-decoration: none;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+        }
+
+        .related-grid {
+          display: grid;
+          grid-template-columns: repeat(
+            4,
+            minmax(0, 1fr)
+          );
+          gap: 18px;
+        }
+
+        .related-card {
+          color: #11100e;
+          text-decoration: none;
+        }
+
+        .related-image {
+          position: relative;
+          aspect-ratio: 0.8;
+          overflow: hidden;
+          background: #ebe9e2;
+        }
+
+        .related-image img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+          transition: transform 0.45s ease;
+        }
+
+        .related-card:hover
+          .related-image
+          img {
+          transform: scale(1.04);
+        }
+
+        .related-image span {
+          position: absolute;
+          left: 10px;
+          top: 10px;
+          padding: 7px 9px;
+          background: #11100e;
+          color: #fff;
+          font-size: 8px;
+          letter-spacing: 0.12em;
+        }
+
+        .related-info {
+          padding-top: 13px;
+        }
+
+        .related-category {
+          font-size: 8px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          opacity: 0.42;
+        }
+
+        .related-name {
+          margin-top: 6px;
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .related-price {
+          margin-top: 7px;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .product-notice {
+          position: fixed;
+          top: 82px;
+          right: 20px;
+          z-index: 9999;
+          width: min(
+            390px,
+            calc(100vw - 30px)
+          );
+          padding: 16px 18px;
+          background: #11100e;
+          color: #fff;
+          box-shadow:
+            0 22px 60px
+              rgba(0, 0, 0, 0.2);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .notice-title {
+          margin-bottom: 5px;
+          font-size: 8px;
+          font-weight: 800;
+          letter-spacing: 0.16em;
+          opacity: 0.7;
+        }
+
+        @media (max-width: 1050px) {
+          .product-section {
+            grid-template-columns: 1fr;
+            gap: 45px;
           }
 
-          .product-detail-layout {
-            grid-template-columns:
-              1fr !important;
-            gap: 40px !important;
+          .product-image-column {
+            max-width: 700px;
           }
 
           .related-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr)) !important;
+            grid-template-columns: repeat(
+              3,
+              minmax(0, 1fr)
+            );
+          }
+        }
+
+        @media (max-width: 800px) {
+          .nav-links {
+            display: none;
+          }
+
+          .related-grid {
+            grid-template-columns: repeat(
+              2,
+              minmax(0, 1fr)
+            );
+          }
+
+          .related-header {
+            align-items: flex-start;
+            flex-direction: column;
           }
         }
 
         @media (max-width: 560px) {
+          .nav-inner {
+            padding: 15px 16px;
+          }
+
+          .brand-logo {
+            font-size: 21px;
+          }
+
+          .breadcrumb-shell {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+
+          .product-section {
+            padding: 25px 16px 70px;
+          }
+
+          .product-info-column h1 {
+            font-size: 48px;
+          }
+
+          .action-buttons {
+            grid-template-columns: 1fr;
+          }
+
+          .related-section {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+
+          .related-header h2 {
+            font-size: 40px;
+          }
+
           .related-grid {
-            gap: 11px;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+          }
+
+          .info-row {
+            grid-template-columns: 90px 1fr;
+          }
+
+          .product-notice {
+            right: 15px;
+            top: 72px;
+            width: calc(100vw - 30px);
           }
         }
       `}</style>

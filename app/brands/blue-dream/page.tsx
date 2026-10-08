@@ -49,6 +49,7 @@ type Product = {
   image_url: string | null;
   stock: number;
   featured: boolean;
+  sizes: string[];
 };
 
 type CartItem = {
@@ -61,10 +62,14 @@ type CartItem = {
   category: string;
   stock: number;
   quantity: number;
+  size: string;
   product: Product;
 };
 
 const supabase = createClient();
+
+const CART_KEY = "a_positive_cart";
+const WISHLIST_KEY = "a_positive_wishlist";
 
 /* =========================================================
    FALLBACK BRAND
@@ -99,6 +104,13 @@ const fallbackProducts: Product[] = [
       "https://images.unsplash.com/photo-1603252110481-7ba873bf42ab?auto=format&fit=crop&w=1000&q=90",
     stock: 25,
     featured: true,
+    sizes: [
+      "S",
+      "M",
+      "L",
+      "XL",
+      "XXL",
+    ],
   },
 
   {
@@ -112,6 +124,13 @@ const fallbackProducts: Product[] = [
       "https://images.unsplash.com/photo-1503341504253-dff4815485f1?auto=format&fit=crop&w=1000&q=90",
     stock: 18,
     featured: true,
+    sizes: [
+      "S",
+      "M",
+      "L",
+      "XL",
+      "XXL",
+    ],
   },
 
   {
@@ -125,6 +144,13 @@ const fallbackProducts: Product[] = [
       "https://images.unsplash.com/photo-1625910513413-5fc45e9d98b8?auto=format&fit=crop&w=1000&q=90",
     stock: 40,
     featured: true,
+    sizes: [
+      "S",
+      "M",
+      "L",
+      "XL",
+      "XXL",
+    ],
   },
 ];
 
@@ -138,6 +164,7 @@ const categories = [
   "POLO",
   "T-SHIRT",
   "PANT",
+  "PANJABI",
 ];
 
 /* =========================================================
@@ -150,135 +177,276 @@ function money(value: number) {
   ).toLocaleString("en-BD")}`;
 }
 
-function normalizeProduct(row: any): Product {
-  return {
-    id: String(row.id),
+function normalizeText(
+  value: unknown
+) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
 
-    name:
+function toNumber(
+  value: unknown
+) {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    return value;
+  }
+
+  const cleaned = String(
+    value ?? ""
+  ).replace(/[^\d.-]/g, "");
+
+  const parsed = Number(cleaned);
+
+  return Number.isFinite(
+    parsed
+  )
+    ? parsed
+    : 0;
+}
+
+function normalizeSizes(
+  value: unknown
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(
+      (item: unknown) =>
+        String(item).trim()
+    )
+    .filter(Boolean);
+}
+
+function normalizeProduct(
+  value: unknown
+): Product {
+  const row =
+    value !== null &&
+    typeof value === "object"
+      ? (value as Record<
+          string,
+          unknown
+        >)
+      : {};
+
+  return {
+    id: String(
+      row.id ?? ""
+    ),
+
+    name: String(
       row.name ??
-      "Untitled Product",
+        "Untitled Product"
+    ),
 
     brand:
-      row.brand ??
-      null,
+      row.brand === null ||
+      row.brand === undefined
+        ? null
+        : String(row.brand),
 
     category:
-      row.category ??
-      null,
+      row.category === null ||
+      row.category === undefined
+        ? null
+        : String(row.category),
 
-    price:
-      Number(row.price ?? 0),
+    price: toNumber(
+      row.price
+    ),
 
     old_price:
-      row.old_price === null ||
-      row.old_price === undefined
-        ? null
-        : Number(row.old_price),
+      row.old_price !== null &&
+      row.old_price !==
+        undefined
+        ? toNumber(
+            row.old_price
+          )
+        : row.oldPrice !==
+            null &&
+          row.oldPrice !==
+            undefined
+        ? toNumber(
+            row.oldPrice
+          )
+        : null,
 
     image_url:
-      row.image_url ??
-      null,
+      row.image_url !==
+        null &&
+      row.image_url !==
+        undefined
+        ? String(
+            row.image_url
+          )
+        : row.image !==
+              null &&
+          row.image !==
+              undefined
+        ? String(row.image)
+        : null,
 
     stock:
-      Number(row.stock ?? 0),
+      toNumber(
+        row.stock
+      ),
 
     featured:
-      Boolean(row.featured),
+      Boolean(
+        row.featured
+      ),
+
+    sizes:
+      normalizeSizes(
+        row.sizes
+      ),
   };
 }
 
 /* =========================================================
    STORED CART NORMALIZER
-   Supports:
-   1. Main hybrid format
-   2. Compact old format
-   3. Nested old format
 ========================================================= */
 
 function normalizeStoredCartItem(
-  item: any
+  value: unknown
 ): CartItem | null {
-  if (!item) {
+  if (
+    value === null ||
+    typeof value !== "object"
+  ) {
     return null;
   }
 
+  const item =
+    value as Record<
+      string,
+      unknown
+    >;
+
   const nestedProduct =
-    item?.product &&
+    item.product !== null &&
     typeof item.product === "object"
-      ? item.product
+      ? (item.product as Record<
+          string,
+          unknown
+        >)
       : null;
 
-  const productId = String(
-    item?.productId ??
-      nestedProduct?.id ??
-      item?.id ??
-      ""
-  );
+  const productId =
+    String(
+      item.productId ??
+        nestedProduct?.id ??
+        item.id ??
+        ""
+    );
 
   if (!productId) {
     return null;
   }
 
   const productSource =
-    nestedProduct ?? item;
+    nestedProduct ??
+    item;
 
-  if (!productSource?.name) {
+  if (
+    !productSource.name
+  ) {
     return null;
   }
 
   const product: Product = {
     id: productId,
 
-    name:
-      productSource.name ??
-      "Untitled Product",
+    name: String(
+      productSource.name
+    ),
 
     brand:
-      productSource.brand ??
-      "BLUE DREAM",
+      productSource.brand !==
+        null &&
+      productSource.brand !==
+        undefined
+        ? String(
+            productSource.brand
+          )
+        : "BLUE DREAM",
 
     category:
-      productSource.category ??
-      "FASHION",
+      productSource.category !==
+        null &&
+      productSource.category !==
+        undefined
+        ? String(
+            productSource.category
+          )
+        : "FASHION",
 
     price:
-      Number(
+      toNumber(
         productSource.price
-      ) || 0,
+      ),
 
     old_price:
       productSource.old_price !==
-        undefined &&
+        null &&
       productSource.old_price !==
-        null
-        ? Number(
+        undefined
+        ? toNumber(
             productSource.old_price
-          )
-        : productSource.oldPrice !==
-            undefined
-        ? Number(
-            productSource.oldPrice
           )
         : null,
 
     image_url:
-      productSource.image_url ??
-      productSource.image ??
-      "",
+      productSource.image_url !==
+        null &&
+      productSource.image_url !==
+        undefined
+        ? String(
+            productSource.image_url
+          )
+        : productSource.image !==
+            null &&
+          productSource.image !==
+            undefined
+        ? String(
+            productSource.image
+          )
+        : "",
 
     stock:
-      Number(
+      toNumber(
         productSource.stock
-      ) || 0,
+      ),
 
     featured:
       Boolean(
         productSource.featured
       ),
+
+    sizes:
+      normalizeSizes(
+        productSource.sizes
+      ),
   };
 
+  const size =
+    item.size !== null &&
+    item.size !== undefined
+      ? String(item.size)
+      : "";
+
   return {
-    id: product.id,
+    id: String(
+      item.id ??
+        `${product.id}-${size || "default"}`
+    ),
 
     productId:
       product.id,
@@ -312,20 +480,27 @@ function normalizeStoredCartItem(
       Math.max(
         1,
         Number(
-          item?.quantity ?? 1
+          item.quantity ?? 1
         )
       ),
+
+    size,
 
     product,
   };
 }
 
+/* =========================================================
+   CART SERIALIZER
+========================================================= */
+
 function serializeCartItem(
   product: Product,
-  quantity: number
+  quantity: number,
+  size: string
 ): CartItem {
   return {
-    id: product.id,
+    id: `${product.id}-${size || "default"}`,
 
     productId:
       product.id,
@@ -357,6 +532,8 @@ function serializeCartItem(
 
     quantity,
 
+    size,
+
     product,
   };
 }
@@ -376,7 +553,9 @@ export default function BlueDreamPage() {
   const [
     products,
     setProducts,
-  ] = useState<Product[]>([]);
+  ] = useState<Product[]>(
+    []
+  );
 
   const [
     activeCategory,
@@ -386,68 +565,98 @@ export default function BlueDreamPage() {
   const [
     cartItems,
     setCartItems,
-  ] = useState<CartItem[]>([]);
+  ] = useState<CartItem[]>(
+    []
+  );
 
   const [
     wishlistIds,
     setWishlistIds,
-  ] = useState<string[]>([]);
+  ] = useState<string[]>(
+    []
+  );
 
   const [
     cartNotice,
     setCartNotice,
-  ] = useState<Product | null>(
-    null
-  );
+  ] = useState<
+    Product | null
+  >(null);
 
   /* =======================================================
      LOCAL CART + WISHLIST
   ======================================================= */
 
   useEffect(() => {
-    const savedCart =
-      localStorage.getItem(
-        "a_positive_cart"
-      );
+    function readCart() {
+      const savedCart =
+        localStorage.getItem(
+          CART_KEY
+        );
 
-    const savedWishlist =
-      localStorage.getItem(
-        "a_positive_wishlist"
-      );
+      if (!savedCart) {
+        setCartItems([]);
+        return;
+      }
 
-    if (savedCart) {
       try {
-        const parsed =
+        const parsed: unknown =
           JSON.parse(
             savedCart
           );
 
         if (
-          Array.isArray(
+          !Array.isArray(
             parsed
           )
         ) {
-          const normalized =
-            parsed
-              .map(
-                normalizeStoredCartItem
-              )
-              .filter(
-                Boolean
-              ) as CartItem[];
-
-          setCartItems(
-            normalized
-          );
+          setCartItems([]);
+          return;
         }
-      } catch {
+
+        const normalized =
+          parsed
+            .map(
+              (
+                item: unknown
+              ) =>
+                normalizeStoredCartItem(
+                  item
+                )
+            )
+            .filter(
+              (
+                item
+              ): item is CartItem =>
+                Boolean(item)
+            );
+
+        setCartItems(
+          normalized
+        );
+      } catch (error) {
+        console.error(
+          "BLUE DREAM CART LOAD ERROR:",
+          error
+        );
+
         setCartItems([]);
       }
     }
 
-    if (savedWishlist) {
+    function readWishlist() {
+      const savedWishlist =
+        localStorage.getItem(
+          WISHLIST_KEY
+        );
+
+      if (!savedWishlist) {
+        setWishlistIds([]);
+        return;
+      }
+
       try {
-        const parsed =
+        const parsed: unknown =
           JSON.parse(
             savedWishlist
           );
@@ -459,7 +668,9 @@ export default function BlueDreamPage() {
         ) {
           setWishlistIds(
             parsed.map(
-              (id) =>
+              (
+                id: unknown
+              ) =>
                 String(id)
             )
           );
@@ -469,80 +680,17 @@ export default function BlueDreamPage() {
       }
     }
 
+    readCart();
+    readWishlist();
+
     const cartListener =
       () => {
-        const value =
-          localStorage.getItem(
-            "a_positive_cart"
-          );
-
-        if (!value) {
-          setCartItems([]);
-          return;
-        }
-
-        try {
-          const parsed =
-            JSON.parse(
-              value
-            );
-
-          if (
-            Array.isArray(
-              parsed
-            )
-          ) {
-            const normalized =
-              parsed
-                .map(
-                  normalizeStoredCartItem
-                )
-                .filter(
-                  Boolean
-                ) as CartItem[];
-
-            setCartItems(
-              normalized
-            );
-          }
-        } catch {
-          setCartItems([]);
-        }
+        readCart();
       };
 
     const wishlistListener =
       () => {
-        const value =
-          localStorage.getItem(
-            "a_positive_wishlist"
-          );
-
-        if (!value) {
-          setWishlistIds([]);
-          return;
-        }
-
-        try {
-          const parsed =
-            JSON.parse(
-              value
-            );
-
-          if (
-            Array.isArray(
-              parsed
-            )
-          ) {
-            setWishlistIds(
-              parsed.map(
-                (id) =>
-                  String(id)
-              )
-            );
-          }
-        } catch {
-          setWishlistIds([]);
-        }
+        readWishlist();
       };
 
     window.addEventListener(
@@ -573,81 +721,156 @@ export default function BlueDreamPage() {
   ======================================================= */
 
   useEffect(() => {
-    const loadBrandAndProducts =
-      async () => {
+    let cancelled = false;
+
+    async function loadBrandAndProducts() {
+      try {
         const [
           brandResult,
           productsResult,
-        ] =
-          await Promise.all([
-            supabase
-              .from("brands")
-              .select(
-                "id,slug,name,tagline,image_url,accent_color,dark_color,active,sort_order"
-              )
-              .eq(
-                "slug",
-                "blue-dream"
-              )
-              .eq(
-                "active",
-                true
-              )
-              .maybeSingle(),
+        ] = await Promise.all([
+          supabase
+            .from("brands")
+            .select(
+              "id,slug,name,tagline,image_url,accent_color,dark_color,active,sort_order"
+            )
+            .eq(
+              "slug",
+              "blue-dream"
+            )
+            .eq(
+              "active",
+              true
+            )
+            .maybeSingle(),
 
-            supabase
-              .from("products")
-              .select(
-                "id,name,brand,category,price,old_price,image_url,stock,featured"
-              )
-              .ilike(
-                "brand",
-                "BLUE DREAM"
-              )
-              .order(
-                "featured",
-                {
-                  ascending:
-                    false,
-                }
-              )
-              .order(
-                "created_at",
-                {
-                  ascending:
-                    false,
-                }
-              ),
-          ]);
+          supabase
+            .from("products")
+            .select(
+              "id,name,brand,category,price,old_price,image_url,stock,featured,sizes,created_at"
+            )
+            .order(
+              "featured",
+              {
+                ascending:
+                  false,
+              }
+            )
+            .order(
+              "created_at",
+              {
+                ascending:
+                  false,
+              }
+            ),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
 
         if (
           !brandResult.error &&
           brandResult.data
         ) {
           setBrand(
-            brandResult.data
+            brandResult.data as Brand
           );
         }
 
         if (
-          !productsResult.error &&
-          productsResult.data &&
-          productsResult.data.length >
-            0
+          productsResult.error
+        ) {
+          console.error(
+            "BLUE DREAM PRODUCTS DATABASE ERROR:",
+            productsResult.error
+          );
+
+          setProducts(
+            fallbackProducts
+          );
+
+          return;
+        }
+
+        const allProducts =
+          (
+            productsResult.data ??
+            []
+          ).map(
+            (row: unknown) =>
+              normalizeProduct(
+                row
+              )
+          );
+
+        const currentBrand =
+          !brandResult.error &&
+          brandResult.data
+            ? (brandResult.data as Brand)
+            : fallbackBrand;
+
+        const possibleBrandValues =
+          [
+            "BLUE DREAM",
+            "Blue Dream",
+            "blue-dream",
+            currentBrand.name,
+            currentBrand.slug,
+            currentBrand.id,
+          ]
+            .filter(Boolean)
+            .map(
+              normalizeText
+            );
+
+        const blueDreamProducts =
+          allProducts.filter(
+            (
+              product: Product
+            ) =>
+              possibleBrandValues.includes(
+                normalizeText(
+                  product.brand
+                )
+              )
+          );
+
+        if (
+          blueDreamProducts.length >
+          0
         ) {
           setProducts(
-            productsResult.data.map(
-              normalizeProduct
-            )
+            blueDreamProducts
           );
         } else {
+          console.warn(
+            "No BLUE DREAM products found in Supabase."
+          );
+
           setProducts(
             fallbackProducts
           );
         }
-      };
+      } catch (error) {
+        console.error(
+          "BLUE DREAM PAGE LOAD ERROR:",
+          error
+        );
+
+        if (!cancelled) {
+          setProducts(
+            fallbackProducts
+          );
+        }
+      }
+    }
 
     loadBrandAndProducts();
+
+    /* ===================================================
+       BRAND REALTIME
+    =================================================== */
 
     const brandChannel =
       supabase
@@ -658,8 +881,10 @@ export default function BlueDreamPage() {
           "postgres_changes",
           {
             event: "*",
-            schema: "public",
-            table: "brands",
+            schema:
+              "public",
+            table:
+              "brands",
             filter:
               "slug=eq.blue-dream",
           },
@@ -668,6 +893,10 @@ export default function BlueDreamPage() {
           }
         )
         .subscribe();
+
+    /* ===================================================
+       PRODUCT REALTIME
+    =================================================== */
 
     const productsChannel =
       supabase
@@ -678,8 +907,10 @@ export default function BlueDreamPage() {
           "postgres_changes",
           {
             event: "*",
-            schema: "public",
-            table: "products",
+            schema:
+              "public",
+            table:
+              "products",
           },
           () => {
             loadBrandAndProducts();
@@ -688,6 +919,8 @@ export default function BlueDreamPage() {
         .subscribe();
 
     return () => {
+      cancelled = true;
+
       supabase.removeChannel(
         brandChannel
       );
@@ -710,15 +943,18 @@ export default function BlueDreamPage() {
     const timer =
       window.setTimeout(
         () => {
-          setCartNotice(null);
+          setCartNotice(
+            null
+          );
         },
         3500
       );
 
-    return () =>
+    return () => {
       window.clearTimeout(
         timer
       );
+    };
   }, [cartNotice]);
 
   /* =======================================================
@@ -735,9 +971,15 @@ export default function BlueDreamPage() {
       }
 
       return products.filter(
-        (product) =>
-          product.category?.toUpperCase() ===
-          activeCategory
+        (
+          product: Product
+        ) =>
+          normalizeText(
+            product.category
+          ) ===
+          normalizeText(
+            activeCategory
+          )
       );
     }, [
       products,
@@ -753,8 +995,8 @@ export default function BlueDreamPage() {
       () =>
         cartItems.reduce(
           (
-            total,
-            item
+            total: number,
+            item: CartItem
           ) =>
             total +
             Number(
@@ -769,128 +1011,167 @@ export default function BlueDreamPage() {
      WISHLIST
   ======================================================= */
 
-  const toggleWishlist =
-    (
-      productId: string
-    ) => {
-      const id =
-        String(
-          productId
-        );
+  function toggleWishlist(
+    productId: string
+  ) {
+    const id =
+      String(
+        productId
+      );
 
-      const next =
-        wishlistIds.includes(
-          id
-        )
-          ? wishlistIds.filter(
-              (
-                item
-              ) =>
-                item !== id
-            )
-          : [
-              ...wishlistIds,
-              id,
-            ];
+    const next =
+      wishlistIds.includes(id)
+        ? wishlistIds.filter(
+            (
+              item: string
+            ) =>
+              item !== id
+          )
+        : [
+            ...wishlistIds,
+            id,
+          ];
 
-      setWishlistIds(
+    setWishlistIds(
+      next
+    );
+
+    localStorage.setItem(
+      WISHLIST_KEY,
+      JSON.stringify(
         next
-      );
+      )
+    );
 
-      localStorage.setItem(
-        "a_positive_wishlist",
-        JSON.stringify(
-          next
-        )
-      );
-
-      window.dispatchEvent(
-        new Event(
-          "a_positive_wishlist_updated"
-        )
-      );
-    };
+    window.dispatchEvent(
+      new Event(
+        "a_positive_wishlist_updated"
+      )
+    );
+  }
 
   /* =======================================================
      ADD TO CART
   ======================================================= */
 
-  const addToCart =
-    (
-      product: Product
-    ) => {
-      if (
-        product.stock <= 0
-      ) {
-        return;
-      }
+  async function addToCart(
+    product: Product
+  ) {
+    if (
+      product.stock <= 0
+    ) {
+      return;
+    }
 
-      const existing =
-        cartItems.find(
-          (
-            item
-          ) =>
-            item.productId ===
-            product.id
-        );
-
-      let next: CartItem[];
-
-      if (existing) {
-        const nextQuantity =
-          Math.min(
-            existing.quantity +
-              1,
-            Math.max(
-              product.stock,
-              1
-            )
-          );
-
-        next =
-          cartItems.map(
-            (
-              item
-            ) =>
-              item.productId ===
-              product.id
-                ? serializeCartItem(
-                    product,
-                    nextQuantity
-                  )
-                : item
-          );
-      } else {
-        next = [
-          ...cartItems,
-          serializeCartItem(
-            product,
-            1
-          ),
-        ];
-      }
-
-      setCartItems(
-        next
-      );
-
-      localStorage.setItem(
-        "a_positive_cart",
-        JSON.stringify(
-          next
-        )
-      );
-
-      window.dispatchEvent(
-        new Event(
-          "a_positive_cart_updated"
-        )
-      );
-
+    if (
+      product.id.startsWith(
+        "fallback-"
+      )
+    ) {
       setCartNotice(
         product
       );
-    };
+
+      return;
+    }
+
+    /* -----------------------------------------------
+       LOGIN REQUIRED
+    ------------------------------------------------ */
+
+    
+    
+
+    /* -----------------------------------------------
+       SIZE PRODUCTS
+       Send customer to product details
+    ------------------------------------------------ */
+
+    if (
+      product.sizes.length >
+      0
+    ) {
+      window.location.href =
+        `/products/${product.id}`;
+
+      return;
+    }
+
+    /* -----------------------------------------------
+       NORMAL PRODUCT
+    ------------------------------------------------ */
+
+    const existing =
+      cartItems.find(
+        (
+          item: CartItem
+        ) =>
+          item.productId ===
+            product.id &&
+          item.size === ""
+      );
+
+    let next: CartItem[];
+
+    if (existing) {
+      const nextQuantity =
+        Math.min(
+          Number(
+            existing.quantity
+          ) + 1,
+          Math.max(
+            product.stock,
+            1
+          )
+        );
+
+      next =
+        cartItems.map(
+          (
+            item: CartItem
+          ) =>
+            item.productId ===
+              product.id &&
+            item.size === ""
+              ? serializeCartItem(
+                  product,
+                  nextQuantity,
+                  ""
+                )
+              : item
+        );
+    } else {
+      next = [
+        ...cartItems,
+        serializeCartItem(
+          product,
+          1,
+          ""
+        ),
+      ];
+    }
+
+    setCartItems(
+      next
+    );
+
+    localStorage.setItem(
+      CART_KEY,
+      JSON.stringify(
+        next
+      )
+    );
+
+    window.dispatchEvent(
+      new Event(
+        "a_positive_cart_updated"
+      )
+    );
+
+    setCartNotice(
+      product
+    );
+  }
 
   /* =======================================================
      COLORS / HERO
@@ -908,6 +1189,10 @@ export default function BlueDreamPage() {
   const accentColor =
     brand.accent_color ||
     "#D9E6F5";
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <main
@@ -1041,7 +1326,9 @@ export default function BlueDreamPage() {
               className="round-nav-button"
               aria-label="Wishlist"
             >
-              <Heart size={17} />
+              <Heart
+                size={17}
+              />
             </Link>
 
             <Link
@@ -1049,7 +1336,9 @@ export default function BlueDreamPage() {
               className="round-nav-button cart-nav-button"
               aria-label="Cart"
             >
-              <ShoppingBag size={17} />
+              <ShoppingBag
+                size={17}
+              />
 
               {cartCount >
                 0 && (
@@ -1081,16 +1370,14 @@ export default function BlueDreamPage() {
           className="blue-dream-hero"
           initial={{
             opacity: 0,
-            scale:
-              0.985,
+            scale: 0.985,
           }}
           animate={{
             opacity: 1,
             scale: 1,
           }}
           transition={{
-            duration:
-              0.9,
+            duration: 0.9,
           }}
           style={{
             position:
@@ -1104,7 +1391,9 @@ export default function BlueDreamPage() {
         >
           <motion.img
             src={heroImage}
-            alt={brand.name}
+            alt={
+              brand.name
+            }
             initial={{
               scale: 1.08,
             }}
@@ -1112,10 +1401,13 @@ export default function BlueDreamPage() {
               scale: 1,
             }}
             transition={{
-              duration:
-                1.4,
-              ease:
-                [0.22, 1, 0.36, 1],
+              duration: 1.4,
+              ease: [
+                0.22,
+                1,
+                0.36,
+                1,
+              ],
             }}
             style={{
               position:
@@ -1243,7 +1535,9 @@ export default function BlueDreamPage() {
                   "-0.055em",
               }}
             >
-              {brand.name}
+              {
+                brand.name
+              }
             </motion.h1>
 
             <motion.div
@@ -1343,6 +1637,7 @@ export default function BlueDreamPage() {
                 className="hero-light-button"
               >
                 EXPLORE BLUE DREAM
+
                 <ArrowRight
                   size={14}
                 />
@@ -1353,6 +1648,7 @@ export default function BlueDreamPage() {
                 className="hero-outline-button"
               >
                 SHOP ALL
+
                 <ChevronRight
                   size={14}
                 />
@@ -1534,7 +1830,7 @@ export default function BlueDreamPage() {
         >
           {categories.map(
             (
-              category
+              category: string
             ) => (
               <motion.button
                 key={
@@ -1658,10 +1954,11 @@ export default function BlueDreamPage() {
             </h2>
           </div>
 
-          <div
-            className="collection-count"
-          >
-            {visibleProducts.length} ITEMS
+          <div className="collection-count">
+            {
+              visibleProducts.length
+            }{" "}
+            ITEMS
           </div>
         </motion.div>
 
@@ -1676,13 +1973,18 @@ export default function BlueDreamPage() {
             >
               {visibleProducts.map(
                 (
-                  product,
-                  index
+                  product: Product,
+                  index: number
                 ) => {
                   const liked =
                     wishlistIds.includes(
                       product.id
                     );
+
+                  const hasSizes =
+                    product.sizes
+                      .length >
+                    0;
 
                   return (
                     <motion.article
@@ -1711,9 +2013,8 @@ export default function BlueDreamPage() {
                           0.04,
                       }}
                     >
-                      <div
-                        className="bd-product-media"
-                      >
+                      <div className="bd-product-media">
+
                         <Link
                           href={`/products/${product.id}`}
                           className="bd-product-image-link"
@@ -1739,8 +2040,14 @@ export default function BlueDreamPage() {
                           />
                         </Link>
 
+                        {/* WISHLIST */}
+
                         <button
                           type="button"
+                          disabled={
+                            product.stock <=
+                            0
+                          }
                           onClick={() =>
                             toggleWishlist(
                               product.id
@@ -1764,14 +2071,34 @@ export default function BlueDreamPage() {
                           />
                         </button>
 
+                        {/* SIZE BADGE */}
+
+                        {hasSizes &&
+                          product.stock >
+                            0 && (
+                            <span className="bd-size-badge">
+                              SIZES AVAILABLE
+                            </span>
+                          )}
+
+                        {/* LOW STOCK */}
+
                         {product.stock <=
                           3 &&
                           product.stock >
                             0 && (
-                            <span className="bd-stock-badge">
-                              LOW STOCK
-                            </span>
-                          )}
+                          <span
+                            className={
+                              hasSizes
+                                ? "bd-stock-badge bd-stock-badge-with-size"
+                                : "bd-stock-badge"
+                            }
+                          >
+                            LOW STOCK
+                          </span>
+                        )}
+
+                        {/* SOLD OUT */}
 
                         {product.stock <=
                           0 && (
@@ -1779,6 +2106,8 @@ export default function BlueDreamPage() {
                             SOLD OUT
                           </span>
                         )}
+
+                        {/* QUICK ADD */}
 
                         <motion.button
                           type="button"
@@ -1825,7 +2154,9 @@ export default function BlueDreamPage() {
                         >
                           {product.stock >
                           0
-                            ? "ADD TO BAG"
+                            ? hasSizes
+                              ? "SELECT SIZE"
+                              : "ADD TO BAG"
                             : "SOLD OUT"}
 
                           {product.stock >
@@ -1841,6 +2172,7 @@ export default function BlueDreamPage() {
 
                       <div className="bd-product-info">
                         <div className="bd-product-top">
+
                           <div>
                             <div className="bd-product-category">
                               {
@@ -1856,6 +2188,26 @@ export default function BlueDreamPage() {
                                 product.name
                               }
                             </Link>
+
+                            {hasSizes && (
+                              <div className="bd-size-list">
+                                {product.sizes.map(
+                                  (
+                                    size: string
+                                  ) => (
+                                    <span
+                                      key={
+                                        size
+                                      }
+                                    >
+                                      {
+                                        size
+                                      }
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           <div className="bd-price-box">
@@ -1865,16 +2217,18 @@ export default function BlueDreamPage() {
                               )}
                             </strong>
 
-                            {product.old_price &&
+                            {product.old_price !==
+                              null &&
                               product.old_price >
                                 product.price && (
-                                <del>
-                                  {money(
-                                    product.old_price
-                                  )}
-                                </del>
-                              )}
+                              <del>
+                                {money(
+                                  product.old_price
+                                )}
+                              </del>
+                            )}
                           </div>
+
                         </div>
                       </div>
                     </motion.article>
@@ -2036,7 +2390,10 @@ export default function BlueDreamPage() {
               className="bd-story-link"
             >
               SHOP THE FULL COLLECTION
-              <ArrowRight size={14} />
+
+              <ArrowRight
+                size={14}
+              />
             </Link>
           </motion.div>
 
@@ -2192,7 +2549,10 @@ export default function BlueDreamPage() {
             className="bd-final-button"
           >
             SHOP BLUE DREAM
-            <ArrowRight size={14} />
+
+            <ArrowRight
+              size={14}
+            />
           </Link>
         </motion.div>
       </section>
@@ -2228,6 +2588,7 @@ export default function BlueDreamPage() {
             className="bd-cart-notice"
           >
             <div className="bd-cart-notice-main">
+
               <div
                 className="bd-cart-check"
                 style={{
@@ -2242,13 +2603,17 @@ export default function BlueDreamPage() {
 
               <div>
                 <strong>
-                  ADDED TO BAG
+                  {cartNotice.sizes.length >
+                  0
+                    ? "SELECT SIZE"
+                    : "ADDED TO BAG"}
                 </strong>
 
                 <span>
-                  {
-                    cartNotice.name
-                  }
+                  {cartNotice.sizes.length >
+                  0
+                    ? "Choose your preferred size to continue."
+                    : cartNotice.name}
                 </span>
               </div>
 
@@ -2262,22 +2627,24 @@ export default function BlueDreamPage() {
               >
                 <X size={16} />
               </button>
+
             </div>
 
             <div className="bd-cart-actions">
+
               <Link
-                href="/cart"
+                href={`/products/${cartNotice.id}`}
                 onClick={() =>
                   setCartNotice(
                     null
                   )
                 }
               >
-                VIEW CART
+                VIEW PRODUCT
               </Link>
 
               <Link
-                href="/checkout"
+                href="/cart"
                 onClick={() =>
                   setCartNotice(
                     null
@@ -2290,8 +2657,9 @@ export default function BlueDreamPage() {
                     "#fff",
                 }}
               >
-                CHECKOUT
+                VIEW CART
               </Link>
+
             </div>
           </motion.div>
         )}
@@ -2454,6 +2822,7 @@ export default function BlueDreamPage() {
           transition:
             transform 0.2s ease,
             box-shadow 0.2s ease;
+          z-index: 5;
         }
 
         .bd-wishlist:hover {
@@ -2462,22 +2831,34 @@ export default function BlueDreamPage() {
             0 10px 30px rgba(0, 0, 0, 0.08);
         }
 
+        .bd-size-badge,
         .bd-stock-badge,
         .bd-sold-badge {
           position: absolute;
-          top: 12px;
           left: 12px;
           padding: 7px 9px;
           font-size: 8px;
           letter-spacing: 0.14em;
         }
 
+        .bd-size-badge {
+          top: 12px;
+          background: #071a38;
+          color: #fff;
+        }
+
         .bd-stock-badge {
+          top: 42px;
           background: #fff;
           color: #11100e;
         }
 
+        .bd-stock-badge-with-size {
+          top: 43px;
+        }
+
         .bd-sold-badge {
+          top: 12px;
           background: #071a38;
           color: #fff;
         }
@@ -2499,6 +2880,7 @@ export default function BlueDreamPage() {
           transition:
             filter 0.2s ease,
             transform 0.2s ease;
+          z-index: 5;
         }
 
         .bd-quick-add:hover {
@@ -2534,6 +2916,27 @@ export default function BlueDreamPage() {
 
         .bd-product-name:hover {
           opacity: 0.6;
+        }
+
+        .bd-size-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          margin-top: 8px;
+        }
+
+        .bd-size-list span {
+          padding: 4px 6px;
+          border: 1px solid
+            rgba(17, 16, 14, 0.12);
+          background: rgba(
+            17,
+            16,
+            14,
+            0.02
+          );
+          font-size: 8px;
+          opacity: 0.58;
         }
 
         .bd-price-box {
@@ -2584,9 +2987,11 @@ export default function BlueDreamPage() {
           padding: 17px;
           background: #fff;
           color: #11100e;
-          border: 1px solid rgba(17, 16, 14, 0.08);
+          border: 1px solid
+            rgba(17, 16, 14, 0.08);
           box-shadow:
-            0 24px 70px rgba(0, 0, 0, 0.16);
+            0 24px 70px
+              rgba(0, 0, 0, 0.16);
         }
 
         .bd-cart-notice-main {
@@ -2604,7 +3009,8 @@ export default function BlueDreamPage() {
           color: #fff;
         }
 
-        .bd-cart-notice-main > div:nth-child(2) {
+        .bd-cart-notice-main
+          > div:nth-child(2) {
           flex: 1;
           min-width: 0;
         }
@@ -2682,7 +3088,8 @@ export default function BlueDreamPage() {
             min-height: 590px !important;
           }
 
-          .blue-dream-hero > div:last-child {
+          .blue-dream-hero
+            > div:last-child {
             min-height: 590px !important;
           }
 
@@ -2716,7 +3123,8 @@ export default function BlueDreamPage() {
             min-height: 540px !important;
           }
 
-          .blue-dream-hero > div:last-child {
+          .blue-dream-hero
+            > div:last-child {
             min-height: 540px !important;
           }
         }
