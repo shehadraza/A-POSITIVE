@@ -168,47 +168,53 @@ const fallbackBrands: Brand[] = [
 /* =========================================================
    CATEGORIES
 ========================================================= */
-
 const categories = [
   {
     name: "SHIRTS",
-    count: "24 ITEMS",
     filter: "SHIRT",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=900&q=90",
   },
   {
     name: "POLOS",
-    count: "18 ITEMS",
     filter: "POLO",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1625910513413-5fc45e9d98b8?auto=format&fit=crop&w=900&q=90",
   },
   {
     name: "T-SHIRTS",
-    count: "31 ITEMS",
     filter: "T-SHIRT",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&w=900&q=90",
   },
   {
     name: "PANTS",
-    count: "16 ITEMS",
     filter: "PANT",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1542272604-787c3835535d?auto=format&fit=crop&w=900&q=90",
   },
   {
+    name: "PANJABI",
+    filter: "PANJABI",
+    count:"100+",
+    image:
+      "https://images.unsplash.com/photo-1774437678744-0be33717c4f2?auto=format&fit=crop&fm=jpg&q=85&w=1200",
+  },
+  {
     name: "DRESSES",
-    count: "28 ITEMS",
     filter: "DRESS",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=900&q=90",
   },
   {
     name: "BAGS",
-    count: "22 ITEMS",
     filter: "BAG",
+    count:"100+",
     image:
       "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=90",
   },
@@ -227,7 +233,7 @@ const fallbackProducts: Product[] = [
     oldPrice: 1890,
     category: "SHIRT",
     image:
-      "https://images.unsplash.com/photo-1603252110481-7ba873bf42ab?auto=format&fit=crop&w=1000&q=90",
+      "",
     createdAt: "2026-09-05",
     sales: 86,
     views: 1450,
@@ -3334,6 +3340,7 @@ export default function Home() {
       "PANT",
       "DRESS",
       "BAG",
+      "PANJABI",
     ].map((category, index) => (
       <button
         key={category}
